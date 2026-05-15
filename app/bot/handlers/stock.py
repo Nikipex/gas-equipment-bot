@@ -184,7 +184,7 @@ async def send_supplier_stock_results(message: Message, query: str) -> None:
 
 
 def build_supplier_stock_text(query: str) -> str:
-    result = _supplier_cache_service.search(query, limit=15)
+    result = _supplier_cache_service.compare(query, limit=15)
 
     if result.empty:
         return f"❌ У поставщиков ничего не найдено по запросу: <b>{html.escape(query)}</b>"
@@ -202,8 +202,10 @@ def build_supplier_stock_text(query: str) -> str:
         stock = _format_stock(row.get("stock"))
         warehouse_stock_text = _format_warehouse_stock_text(row.get("warehouse_stocks"))
 
+        best_badge = " 🟢 <b>Лучшее предложение</b>" if bool(row.get("is_best_price")) else ""
+
         details = [
-            f"{index}. <b>{product}</b>",
+            f"{index}. <b>{product}</b>{best_badge}",
             f"🏷️ Поставщик: {supplier}",
             f"💰 Цена поставщика: {price}",
         ]

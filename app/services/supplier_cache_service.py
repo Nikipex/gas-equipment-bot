@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
-import json
 
 import pandas as pd
 
@@ -20,7 +20,6 @@ class SupplierCacheService:
 
     def save_parse_result(self, result: SupplierParseResult) -> int:
         products = [_product_to_row(product) for product in result.products if _is_good_product(product)]
-
         if not products:
             return 0
 
@@ -28,7 +27,6 @@ class SupplierCacheService:
         old_df = self._read_cache()
 
         supplier_key = str(new_df["supplier_key"].iloc[0])
-
         if not old_df.empty and "supplier_key" in old_df.columns:
             old_df = old_df[old_df["supplier_key"].astype(str) != supplier_key].copy()
 
@@ -42,22 +40,57 @@ class SupplierCacheService:
         return len(new_df)
 
     def search(self, query: str, limit: int = 10) -> pd.DataFrame:
+        result = self._search_internal(query, limit=limit)
+        return result.head(limit)
+
+    def compare(self, query: str, limit: int = 20) -> pd.DataFrame:
+        result = self._search_internal(query, limit=limit)
+        if result.empty:
+            return result
+
+        result = result.copy()
+        price_source = "calculated_price" if "calculated_price" in result.columns else "price"
+        result["offer_price"] = pd.to_numeric(result[price_source], errors="coerce")
+        result["stock_numeric"] = pd.to_numeric(result.get("stock"), errors="coerce").fillna(0)
+        result["product_key"] = result["product_name"].astype(str).map(_product_group_key)
+
+        result = result[result["offer_price"].notna() & (result["offer_price"] > 0)].copy()
+        if result.empty:
+            return result
+
+        result["is_best_price"] = False
+        for _, group in result.groupby("product_key"):
+            best_index = group.sort_values(["offer_price", "stock_numeric"], ascending=[True, False]).index[0]
+            result.loc[best_index, "is_best_price"] = True
+
+        return result.sort_values(
+            ["product_key", "offer_price", "stock_numeric"],
+            ascending=[True, True, False],
+        ).head(limit)
+
+    def _search_internal(self, query: str, limit: int = 30) -> pd.DataFrame:
         df = self._read_cache()
         if df.empty:
             return df
 
-        clean_query, discount_percent, markup_amount, round_step = _parse_price_formula(query)
+        clean_query, supplier_filter, discount_percent, markup_amount, round_step = _parse_supplier_query(query)
         tokens = _query_tokens(clean_query)
         if not tokens:
             return df.head(0)
+
+        result = df.copy()
+
+        if supplier_filter:
+            result = result[result["supplier_key"].astype(str).str.lower() == supplier_filter].copy()
+            if result.empty:
+                return result
+
+        result["name_norm"] = result["product_name"].astype(str).map(_normalize_for_search)
 
         is_boiler_query = _is_boiler_query(clean_query, tokens)
         requested_brand = _requested_brand(tokens)
         requested_series = _requested_series(tokens)
         requested_model_numbers = [token for token in tokens if token.isdigit()]
-
-        result = df.copy()
-        result["name_norm"] = result["product_name"].astype(str).map(_normalize_for_search)
 
         if is_boiler_query:
             result = result[~result["name_norm"].map(_is_boiler_accessory_name)].copy()
@@ -71,6 +104,9 @@ class SupplierCacheService:
         for model_number in requested_model_numbers:
             result = result[result["name_norm"].str.contains(model_number, regex=False, na=False)].copy()
 
+        if result.empty:
+            return result
+
         for idx, token in enumerate(tokens):
             result[f"match_{idx}"] = result["name_norm"].str.contains(token, regex=False, na=False).astype(int)
 
@@ -82,7 +118,12 @@ class SupplierCacheService:
 
         if result.empty and len(tokens) > 1 and not _has_numeric_token(tokens):
             result = df.copy()
+
+            if supplier_filter:
+                result = result[result["supplier_key"].astype(str).str.lower() == supplier_filter].copy()
+
             result["name_norm"] = result["product_name"].astype(str).map(_normalize_for_search)
+
             if is_boiler_query:
                 result = result[~result["name_norm"].map(_is_boiler_accessory_name)].copy()
 
@@ -92,11 +133,9 @@ class SupplierCacheService:
             if requested_series:
                 result = result[result["name_norm"].str.contains(requested_series, regex=False, na=False)].copy()
 
-            for model_number in requested_model_numbers:
-                result = result[result["name_norm"].str.contains(model_number, regex=False, na=False)].copy()
-
             for idx, token in enumerate(tokens):
                 result[f"match_{idx}"] = result["name_norm"].str.contains(token, regex=False, na=False).astype(int)
+
             result["match_score"] = result[[f"match_{idx}" for idx in range(len(tokens))]].sum(axis=1)
             result = result[result["match_score"] >= 1].copy()
 
@@ -121,15 +160,18 @@ class SupplierCacheService:
 
             result["calculated_price"] = calculated_price.round(0)
 
+        price_column = "calculated_price" if "calculated_price" in result.columns else "price_sort"
+        result["offer_price_sort"] = pd.to_numeric(result.get(price_column), errors="coerce").fillna(result["price_sort"])
+
         result = result.sort_values(
-            ["match_score", "stock_sort", "price_sort"],
-            ascending=[False, False, True],
+            ["match_score", "offer_price_sort", "stock_sort"],
+            ascending=[False, True, False],
         )
 
         drop_columns = [
             column
             for column in result.columns
-            if column.startswith("match_") or column in {"name_norm", "stock_sort", "price_sort"}
+            if column.startswith("match_") or column in {"name_norm", "stock_sort", "price_sort", "offer_price_sort"}
         ]
 
         return result.drop(columns=drop_columns).head(limit)
@@ -149,7 +191,15 @@ class SupplierCacheService:
                 ]
             )
 
-        return pd.read_csv(self.cache_path)
+        df = pd.read_csv(self.cache_path)
+
+        if "supplier_key" not in df.columns:
+            df["supplier_key"] = df["supplier_name"].astype(str).map(_legacy_supplier_key)
+
+        if "warehouse_stocks" not in df.columns:
+            df["warehouse_stocks"] = "{}"
+
+        return df
 
 
 def _product_to_row(product: SupplierProduct) -> dict[str, object]:
@@ -167,38 +217,38 @@ def _product_to_row(product: SupplierProduct) -> dict[str, object]:
 
 def _is_good_product(product: SupplierProduct) -> bool:
     name = product.product_name.strip().lower()
-
     if len(name) < 5:
         return False
 
-    garbage_exact = {
-        "итого",
-        "всего",
-        "номенклатура",
-        "наименование",
-        "товар",
-        "прайс",
-    }
-
-    if name in garbage_exact:
+    if name in {"итого", "всего", "номенклатура", "наименование", "товар", "прайс"}:
         return False
 
-    # Для supplier cache цена обязательна.
-    # Строки категорий/разделов обычно идут без цены и засоряют поиск.
     if product.price is None or product.price <= 0:
         return False
 
     return True
 
 
-def _parse_price_formula(
-    query: str,
-) -> tuple[str, float | None, float | None, int | None]:
+def _parse_supplier_query(query: str) -> tuple[str, str | None, float | None, float | None, int | None]:
     text = query.strip()
-
+    supplier_filter = None
     discount_percent = None
     markup_amount = None
     round_step = None
+
+    supplier_match = re.search(
+        r"(?:^|\s)(?:поставщик|supplier)\s*[:=]?\s*(ib|иб|yulas|юлас)(?:\s|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if supplier_match:
+        supplier_filter = _normalize_supplier_key(supplier_match.group(1))
+        text = text.replace(supplier_match.group(0), " ")
+
+    first_token_match = re.match(r"^\s*(ib|иб|yulas|юлас)\s+", text, flags=re.IGNORECASE)
+    if first_token_match:
+        supplier_filter = _normalize_supplier_key(first_token_match.group(1))
+        text = text[first_token_match.end():]
 
     discount_match = re.search(r"-(\d+(?:[.,]\d+)?)\s*%", text)
     if discount_match:
@@ -216,8 +266,25 @@ def _parse_price_formula(
         text = re.sub(r"до\s*(100|10)", " ", text, flags=re.IGNORECASE)
 
     text = re.sub(r"\s+", " ", text).strip()
+    return text, supplier_filter, discount_percent, markup_amount, round_step
 
-    return text, discount_percent, markup_amount, round_step
+
+def _normalize_supplier_key(value: str) -> str:
+    value = value.lower().replace("ё", "е").strip()
+    if value in {"иб", "ib"}:
+        return "ib"
+    if value in {"юлас", "yulas"}:
+        return "yulas"
+    return value
+
+
+def _legacy_supplier_key(value: object) -> str:
+    text = str(value).lower()
+    if "юлас" in text or "yulas" in text:
+        return "yulas"
+    if "иб" in text or any(marker in text for marker in ("бакси", "иммергаз", "аристон", "дражице", "навьен", "термекс", "бош", "эван", "дакор")):
+        return "ib"
+    return "unknown_supplier"
 
 
 def _normalize_text(value: object) -> str:
@@ -227,11 +294,14 @@ def _normalize_text(value: object) -> str:
     return text
 
 
+def _normalize_for_search(value: object) -> str:
+    return " ".join(_query_tokens(str(value)))
+
+
 def _query_tokens(query: str) -> list[str]:
     text = _normalize_text(query)
 
     aliases = {
-        # latin/cyrillic brands
         "baxi": "baxi",
         "бакси": "baxi",
         "bosch": "bosch",
@@ -242,14 +312,12 @@ def _query_tokens(query: str) -> list[str]:
         "навьен": "navien",
         "fondital": "fondital",
         "фондитал": "fondital",
-
-        # model transliteration
+        "vaillant": "vaillant",
+        "вайлант": "vaillant",
         "eco": "eco",
         "эко": "eco",
         "nova": "nova",
         "нова": "nova",
-        "four": "four",
-        "фор": "four",
         "nts": "nts",
         "нтс": "nts",
         "nтs": "nts",
@@ -257,8 +325,6 @@ def _query_tokens(query: str) -> list[str]:
         "nтc": "nts",
         "tgv": "tgv",
         "тгв": "tgv",
-
-        # product words
         "котел": "котел",
         "котёл": "котел",
         "boiler": "котел",
@@ -274,12 +340,10 @@ def _query_tokens(query: str) -> list[str]:
 
         tokens.append(token)
 
-        # 24f / 24fi / 30v -> also search by numeric model core.
         numeric_core = re.match(r"^(\d{2,3})[a-zа-я]+$", token)
         if numeric_core:
             tokens.append(numeric_core.group(1))
 
-    # remove duplicates, preserve order
     seen = set()
     unique_tokens = []
     for token in tokens:
@@ -295,57 +359,27 @@ def _has_numeric_token(tokens: list[str]) -> bool:
     return any(token.isdigit() for token in tokens)
 
 
-def _normalize_for_search(value: object) -> str:
-    tokens = _query_tokens(str(value))
-    return " ".join(tokens)
-
-
 def _is_boiler_query(clean_query: str, tokens: list[str]) -> bool:
     text = _normalize_text(clean_query)
     boiler_markers = {
-        "котел",
-        "baxi",
-        "bosch",
-        "ariston",
-        "navien",
-        "fondital",
-        "mizudo",
-        "daesung",
-        "бакси",
-        "бош",
-        "аристон",
-        "навьен",
-        "фондитал",
+        "котел", "baxi", "bosch", "ariston", "navien", "fondital",
+        "mizudo", "daesung", "vaillant", "бакси", "бош", "аристон",
+        "навьен", "фондитал", "вайлант",
     }
     return any(marker in tokens or marker in text for marker in boiler_markers)
 
 
 def _is_boiler_accessory_name(name_norm: str) -> bool:
     accessory_markers = (
-        "коакс",
-        "дымоход",
-        "комплект",
-        "отвод",
-        "колено",
-        "переход",
-        "адаптер",
-        "труба",
-        "хомут",
-        "втулка",
-        "муфта",
-        "анти лед",
-        "антилед",
-        "датчик",
-        "плата",
-        "насос",
-        "кран",
-        "фильтр",
+        "коакс", "дымоход", "комплект", "отвод", "колено", "переход",
+        "адаптер", "труба", "хомут", "втулка", "муфта", "анти лед",
+        "антилед", "датчик", "плата", "насос", "кран", "фильтр",
     )
     return any(marker in name_norm for marker in accessory_markers)
 
 
 def _requested_brand(tokens: list[str]) -> str | None:
-    brands = {"baxi", "bosch", "ariston", "navien", "fondital", "mizudo", "daesung"}
+    brands = {"baxi", "bosch", "ariston", "navien", "fondital", "mizudo", "daesung", "vaillant"}
     for token in tokens:
         if token in brands:
             return token
@@ -353,8 +387,7 @@ def _requested_brand(tokens: list[str]) -> str | None:
 
 
 def _requested_series(tokens: list[str]) -> str | None:
-    # Если менеджер указал серию, не подмешиваем соседние серии только по мощности.
-    strict_series = {"nts", "eco", "4s", "nova", "clas", "one", "gaz", "6000"}
+    strict_series = {"nts", "4s", "nova", "clas", "one", "gaz", "6000"}
     for token in tokens:
         if token in strict_series:
             return token
@@ -362,20 +395,36 @@ def _requested_series(tokens: list[str]) -> str | None:
 
 
 def _brand_allowed(name_norm: str, requested_brand: str) -> bool:
-    known_brands = {"baxi", "bosch", "ariston", "navien", "fondital", "mizudo", "daesung", "юнипамп", "unipump"}
+    known_brands = {
+        "baxi", "bosch", "ariston", "navien", "fondital", "mizudo",
+        "daesung", "vaillant", "юнипамп", "unipump",
+    }
 
     if requested_brand in name_norm:
         return True
 
-    # BAXI в прайсах иногда записан только как "Эко 4S..." без бренда.
-    # Но не пропускаем явные чужие бренды типа Юнипамп/Unipump.
     if requested_brand == "baxi" and any(token in name_norm for token in ("eco", "4s", "nova")):
-        if any(foreign in name_norm for foreign in ("юнипамп", "unipump", "акваробот", "universal", "станция")):
+        if any(foreign in name_norm for foreign in ("юнипамп", "unipump", "акваробот", "universal", "станция", "vaillant", "вайлант")):
             return False
         return True
 
-    # Bosch часто пишут кириллицей, но aliases уже должны превратить в bosch.
-    # Если в названии нет явного чужого бренда, оставляем как fallback.
     foreign_brands = known_brands - {requested_brand}
-
     return not any(brand in name_norm for brand in foreign_brands)
+
+
+def _product_group_key(value: object) -> str:
+    tokens = _query_tokens(str(value))
+    stop_tokens = {
+        "котел", "турбо", "дым", "без", "трубы", "двухконтурный",
+        "контурный", "тепл", "ка", "акция", "new", "су", "slim", "r",
+    }
+
+    strong = []
+    for token in tokens:
+        if token in stop_tokens:
+            continue
+        if token.isdigit() and int(token) < 10:
+            continue
+        strong.append(token)
+
+    return " ".join(strong[:5]) or _normalize_text(value)
