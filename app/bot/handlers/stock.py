@@ -1,4 +1,4 @@
-"""Stock (остатки) handler."""
+"""Supplier stock handler placeholder."""
 
 from __future__ import annotations
 
@@ -7,15 +7,14 @@ from aiogram.types import Message
 
 from app.bot.keyboards.main_menu import MenuButtons, main_menu_kb
 
-router = Router(name="stock")
+router = Router()
 
 
-@router.message(F.text == MenuButtons.STOCK)
-async def show_stock(message: Message) -> None:
-    """Show stock info (stub)."""
+@router.message(F.text == MenuButtons.SUPPLIER_STOCK)
+async def process_supplier_stock(message: Message) -> None:
     await message.answer(
-        "📦 Остатки на складе\n\n"
+        "🏬 <b>Остатки у поставщиков</b>\n\n"
         "🛠 Функция в разработке.\n"
-        "Здесь будут актуальные остатки по позициям.",
+        "Позже сюда подключим Excel-прайсы поставщиков и поиск по внешним остаткам.",
         reply_markup=main_menu_kb,
     )

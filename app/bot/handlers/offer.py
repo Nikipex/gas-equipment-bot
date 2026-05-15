@@ -20,18 +20,18 @@ router = Router(name="offer")
 # ---------------------------------------------------------------------------
 
 
-@router.message(F.text == MenuButtons.MINI_PRICE)
+@router.message(F.text == MenuButtons.QUOTE)
 async def start_miniprice(message: Message, state: FSMContext) -> None:
     """Enter mini-price query flow."""
     await state.set_state(MiniPrice.waiting_for_query)
     await message.answer(
-        "📋 Введите запрос для мини-прайса.\n"
+        "📋 Введите запрос для просчета.\n"
         "<i>Например: BAXI, радиатор 500, котел 24 кВт</i>\n\n"
         "Для отмены введите /cancel или 'отмена'.",
         reply_markup=main_menu_kb,
     )
     user_id = message.from_user.id if message.from_user else "unknown"
-    logger.info("Пользователь {} вошёл в мини-прайс", user_id)
+    logger.info("Пользователь {} вошёл в просчет", user_id)
 
 
 @router.message(MiniPrice.waiting_for_query, F.text)
@@ -52,7 +52,7 @@ async def process_miniprice_query(message: Message, state: FSMContext) -> None:
         return
 
     user_id = message.from_user.id if message.from_user else "unknown"
-    logger.info("Мини-прайс запрос от {}: '{}'", user_id, query)
+    logger.info("Просчет запрос от {}: '{}'", user_id, query)
 
     try:
         pricing = get_pricing_service()
@@ -69,13 +69,13 @@ async def process_miniprice_query(message: Message, state: FSMContext) -> None:
 
     if offers:
         text = pricing.format_miniprice(offers)
-        logger.info("Мини-прайс: {} предложений для '{}'", len(offers), query)
+        logger.info("Просчет: {} предложений для '{}'", len(offers), query)
     else:
         text = (
             f"❌ Ничего не найдено по запросу: <b>{query}</b>\n\n"
             "Попробуйте уточнить бренд, категорию или модель."
         )
-        logger.info("Мини-прайс: нет результатов для '{}'", query)
+        logger.info("Просчет: нет результатов для '{}'", query)
 
     await message.answer(text, reply_markup=main_menu_kb, parse_mode="HTML")
     await state.clear()
@@ -89,6 +89,6 @@ async def process_miniprice_query(message: Message, state: FSMContext) -> None:
 async def _cancel(message: Message, state: FSMContext) -> None:
     """Cancel mini-price flow and return to menu."""
     await state.clear()
-    await message.answer("❌ Мини-прайс отменён", reply_markup=main_menu_kb)
+    await message.answer("❌ Просчет отменён", reply_markup=main_menu_kb)
     user_id = message.from_user.id if message.from_user else "unknown"
-    logger.info("Пользователь {} отменил мини-прайс", user_id)
+    logger.info("Пользователь {} отменил просчет", user_id)
