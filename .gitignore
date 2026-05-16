@@ -33,3 +33,28 @@ build/
 # Testing
 .pytest_cache/
 .coverage
+
+# =========================
+# Supplier runtime data
+# =========================
+data/supplier_prices/inbox/*
+!data/supplier_prices/inbox/.gitkeep
+
+data/supplier_prices/processed/*
+!data/supplier_prices/processed/.gitkeep
+
+data/supplier_prices/.processed_markers/*
+!data/supplier_prices/.processed_markers/.gitkeep
+
+# =========================
+# Local MAX experiments
+# =========================
+scripts/test_max_api.py
+scripts/inspect_maxapi.py
+scripts/max_poll_files.py
+
+# =========================
+# Future MAX integration sandbox
+# =========================
+app/integrations/max/
+
