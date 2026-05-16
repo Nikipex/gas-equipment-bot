@@ -16,6 +16,7 @@ COPY pyproject.toml ./
 COPY app ./app
 COPY data ./data
 COPY sql ./sql
+COPY scripts ./scripts
 COPY alembic.ini ./
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \

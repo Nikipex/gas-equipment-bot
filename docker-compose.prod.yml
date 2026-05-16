@@ -8,3 +8,13 @@ services:
       - ./data:/opt/app/data
       - ./logs:/opt/app/logs
     command: ["python", "-m", "app.main"]
+
+  supplier-watcher:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/opt/app/data
+      - ./logs:/opt/app/logs
+    command: ["python", "-m", "scripts.run_supplier_watcher", "--interval", "10"]
