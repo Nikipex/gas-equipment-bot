@@ -31,7 +31,8 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
         python-dotenv \
         pydantic-settings \
         loguru \
-        rapidfuzz
+        rapidfuzz \
+        openai
 
 RUN groupadd -r bot && useradd -r -g bot bot \
     && mkdir -p /opt/app/data /opt/app/logs \

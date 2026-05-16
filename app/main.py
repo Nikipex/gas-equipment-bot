@@ -11,10 +11,12 @@ from loguru import logger
 
 from app.bot.routers import main_router
 from app.core.config import settings
+from app.core.env import load_environment
 from app.core.logging import setup_logging
 
 
 async def main() -> None:
+    load_environment()
     """Configure and start the bot with long-polling."""
     setup_logging()
     logger.info("Starting Gas Equipment Bot…")
