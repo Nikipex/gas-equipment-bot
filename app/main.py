@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from loguru import logger
@@ -21,9 +23,17 @@ async def main() -> None:
     setup_logging()
     logger.info("Starting Gas Equipment Bot…")
 
+    telegram_proxy_url = os.getenv("TELEGRAM_PROXY_URL")
+
+    if telegram_proxy_url:
+        logger.info("Using Telegram proxy")
+
+    session = AiohttpSession(proxy=telegram_proxy_url) if telegram_proxy_url else None
+
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        session=session,
     )
 
     dp = Dispatcher()
