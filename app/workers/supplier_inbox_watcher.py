@@ -13,6 +13,7 @@ from loguru import logger
 
 from app.services.supplier_cache_service import SupplierCacheService
 from app.services.supplier_parser_service import SupplierParserService
+from scripts.rebuild_enriched_supplier_products import main as rebuild_enriched_supplier_products
 
 
 INBOX_DIR = Path("data/supplier_prices/inbox")
@@ -76,6 +77,12 @@ class SupplierInboxWatcher:
                     result.parsed_rows,
                     result.saved_count,
                 )
+
+                try:
+                    rebuild_enriched_supplier_products()
+                    logger.info("Enriched supplier products rebuilt")
+                except Exception as exc:
+                    logger.exception("Failed to rebuild enriched supplier products: {}", exc)
             except Exception as exc:
                 logger.exception("Supplier file ingest failed: file={} error={}", file_path, exc)
 
