@@ -27,6 +27,10 @@ class EquipmentIntent:
     recirculation: bool | None = None
     chamber: str | None = None
     install_type: str | None = None
+    orientation: str | None = None
+    gas_automation: str | None = None
+    connection: str | None = None
+    chimney_diameter_mm: int | None = None
     query_for_supplier_search: str = ""
     raw_text: str = ""
 
@@ -49,6 +53,10 @@ class EquipmentIntentParser:
         boiler_type = self._extract_boiler_type(low)
         chamber = self._extract_chamber(low)
         install_type = self._extract_install_type(low)
+        orientation = self._extract_orientation(low)
+        gas_automation = self._extract_gas_automation(low)
+        connection = self._extract_connection(low)
+        chimney_diameter_mm = self._extract_chimney_diameter_mm(low)
 
         query = self._build_supplier_query(
             category=category,
@@ -66,6 +74,10 @@ class EquipmentIntentParser:
             recirculation=recirculation,
             chamber=chamber,
             install_type=install_type,
+            orientation=orientation,
+            gas_automation=gas_automation,
+            connection=connection,
+            chimney_diameter_mm=chimney_diameter_mm,
             raw_text=text,
         )
 
@@ -85,6 +97,10 @@ class EquipmentIntentParser:
             recirculation=recirculation,
             chamber=chamber,
             install_type=install_type,
+            orientation=orientation,
+            gas_automation=gas_automation,
+            connection=connection,
+            chimney_diameter_mm=chimney_diameter_mm,
             query_for_supplier_search=query,
             raw_text=text,
         )
@@ -216,6 +232,45 @@ class EquipmentIntentParser:
         return None
 
 
+
+    def _extract_orientation(self, low: str) -> str | None:
+        if "вертик" in low or "верт" in low:
+            return "vertical"
+        if "гориз" in low or "горизонт" in low or "гор." in low:
+            return "horizontal"
+        return None
+
+    def _extract_gas_automation(self, low: str) -> str | None:
+        if "sit" in low:
+            return "sit"
+        if "tgv" in low or "тgv" in low:
+            return "tgv"
+        return None
+
+    def _extract_connection(self, low: str) -> str | None:
+        if "боковой" in low or "бок.подвод" in low or "боковой подвод" in low:
+            return "side"
+        return None
+
+    def _extract_chimney_diameter_mm(self, low: str) -> int | None:
+        import re
+
+        patterns = [
+            r"(?:дым|дымоход)\.?\s*(\d{2,3})",
+            r"(\d{2,3})\s*(?:мм)?\s*(?:дым|дымоход)",
+        ]
+
+        for pattern in patterns:
+            m = re.search(pattern, low)
+            if not m:
+                continue
+
+            value = int(m.group(1))
+            if 50 <= value <= 300:
+                return value
+
+        return None
+
     def _extract_volume_range(self, low: str) -> tuple[int | None, int | None]:
         import re
 
@@ -338,7 +393,11 @@ class EquipmentIntentParser:
         recirculation: bool | None,
         chamber: str | None,
         install_type: str | None,
-        raw_text: str,
+        orientation: str | None = None,
+        gas_automation: str | None = None,
+        connection: str | None = None,
+        chimney_diameter_mm: int | None = None,
+        raw_text: str = "",
     ) -> str:
         parts: list[str] = []
 

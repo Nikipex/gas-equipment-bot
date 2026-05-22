@@ -24,6 +24,7 @@ from app.services.equipment.equipment_search_pipeline import EquipmentSearchPipe
 router = Router()
 intent_parser = EquipmentIntentParser()
 equipment_pipeline = EquipmentSearchPipeline()
+search_pipeline = equipment_pipeline
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,43 @@ class EquipmentIntent:
     chamber: str | None
     install_type: str | None
     raw_text: str
+
+
+
+
+@router.message(lambda message: message.text and message.text.lower().startswith("/debug_equipment "))
+async def debug_equipment_intent(message: Message) -> None:
+    text = (message.text or "").replace("/debug_equipment", "", 1).strip()
+
+    intent = await intent_parser.parse(text)
+    result = await search_pipeline.search(intent)
+
+    lines = [
+        "🧪 <b>Debug equipment intent</b>",
+        "",
+        f"<b>raw:</b> <code>{html.escape(text)}</code>",
+        f"<b>category:</b> <code>{intent.category}</code>",
+        f"<b>brand:</b> <code>{intent.brand}</code>",
+        f"<b>power_kw:</b> <code>{intent.power_kw}</code>",
+        f"<b>volume_l:</b> <code>{intent.volume_l}</code>",
+        f"<b>volume_min_l:</b> <code>{intent.volume_min_l}</code>",
+        f"<b>volume_max_l:</b> <code>{intent.volume_max_l}</code>",
+        f"<b>boiler_type:</b> <code>{getattr(intent, 'boiler_type', None)}</code>",
+        f"<b>water_heater_type:</b> <code>{getattr(intent, 'water_heater_type', None)}</code>",
+        f"<b>tank_material:</b> <code>{getattr(intent, 'tank_material', None)}</code>",
+        f"<b>tank_coating:</b> <code>{getattr(intent, 'tank_coating', None)}</code>",
+        f"<b>heating_element:</b> <code>{getattr(intent, 'heating_element', None)}</code>",
+        f"<b>recirculation:</b> <code>{getattr(intent, 'recirculation', None)}</code>",
+        f"<b>chamber:</b> <code>{intent.chamber}</code>",
+        f"<b>circuits:</b> <code>{intent.circuits}</code>",
+        f"<b>install_type:</b> <code>{intent.install_type}</code>",
+        f"<b>query:</b> <code>{html.escape(intent.query_for_supplier_search)}</code>",
+        "",
+        f"<b>strict_found:</b> <code>{len(result.candidates)}</code>",
+        f"<b>fallback_found:</b> <code>{len(result.fallback_candidates or [])}</code>",
+    ]
+
+    await message.answer("\n".join(lines), reply_markup=main_menu_kb)
 
 
 @router.message(lambda message: message.text and message.text.lower().startswith(("подбор ", "подбери ", "подобрать ")))

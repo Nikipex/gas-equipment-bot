@@ -53,6 +53,31 @@ class EnrichedSupplierSearchService:
                 out = out[out["power_kw"].notna()]
                 out = out[(out["power_kw"] - float(intent.power_kw)).abs() <= 1.0]
 
+            if intent.circuits and "circuits" in out.columns:
+                circuit_filtered = out[out["circuits"] == intent.circuits]
+                if not circuit_filtered.empty:
+                    out = circuit_filtered
+
+            if getattr(intent, "orientation", None) and "orientation" in out.columns:
+                x = out[out["orientation"] == intent.orientation]
+                if not x.empty:
+                    out = x
+
+            if getattr(intent, "gas_automation", None) and "gas_automation" in out.columns:
+                x = out[out["gas_automation"] == intent.gas_automation]
+                if not x.empty:
+                    out = x
+
+            if getattr(intent, "connection", None) and "connection" in out.columns:
+                x = out[out["connection"] == intent.connection]
+                if not x.empty:
+                    out = x
+
+            if getattr(intent, "chimney_diameter_mm", None) and "chimney_diameter_mm" in out.columns:
+                x = out[out["chimney_diameter_mm"] == intent.chimney_diameter_mm]
+                if not x.empty:
+                    out = x
+
         if intent.category == "water_heater":
             if getattr(intent, "water_heater_type", None) and "equipment_type" in out.columns:
                 out = out[out["equipment_type"] == intent.water_heater_type]
