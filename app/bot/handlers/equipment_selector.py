@@ -17,8 +17,13 @@ from aiogram.types import Message
 from loguru import logger
 
 from app.bot.keyboards.main_menu import main_menu_kb
+from app.services.ai.equipment_intent_parser import EquipmentIntentParser
+
+from app.services.equipment.equipment_search_pipeline import EquipmentSearchPipeline
 
 router = Router()
+intent_parser = EquipmentIntentParser()
+equipment_pipeline = EquipmentSearchPipeline()
 
 
 @dataclass(frozen=True)
@@ -36,9 +41,9 @@ class EquipmentIntent:
 @router.message(lambda message: message.text and message.text.lower().startswith(("подбор ", "подбери ", "подобрать ")))
 async def process_equipment_selection(message: Message) -> None:
     text = message.text or ""
-    intent = _parse_intent(text)
+    intent = await intent_parser.parse(text)
 
-    logger.info(f"AI equipment selector request: category={intent.category} text={text}")
+    logger.info(f"AI equipment selector request: category={intent.category} query={intent.query_for_supplier_search} text={text}")
 
     await message.answer(
         "🧠 Анализирую запрос как ассистент по подбору оборудования…",
@@ -47,8 +52,16 @@ async def process_equipment_selection(message: Message) -> None:
 
     answer = _build_answer(intent)
 
+    try:
+        search_result = await equipment_pipeline.search(intent)
+        supplier_block = _build_supplier_block(intent, search_result)
+        if supplier_block:
+            answer = answer + "\n\n" + supplier_block
+    except Exception as exc:
+        logger.exception(f"Equipment supplier search failed: {exc}")
+
     await message.answer(
-        answer,
+        answer[:3900],
         reply_markup=main_menu_kb,
     )
 
@@ -186,9 +199,9 @@ def _summary(intent: EquipmentIntent) -> str:
     if intent.volume_l:
         parts.append(f"объем: <b>{intent.volume_l} л</b>")
     if intent.install_type:
-        parts.append(f"монтаж: <b>{html.escape(intent.install_type)}</b>")
+        parts.append(f"монтаж: <b>{html.escape(_label_install_type(intent.install_type) or intent.install_type)}</b>")
     if intent.chamber:
-        parts.append(f"камера: <b>{html.escape(intent.chamber)}</b>")
+        parts.append(f"камера: <b>{html.escape(_label_chamber(intent.chamber) or intent.chamber)}</b>")
     if intent.circuits:
         parts.append(f"контуры: <b>{intent.circuits}</b>")
 
@@ -197,8 +210,8 @@ def _summary(intent: EquipmentIntent) -> str:
 
 def _boiler_answer(intent: EquipmentIntent) -> str:
     power = intent.power_kw or 24
-    install = intent.install_type or "настенный"
-    chamber = intent.chamber or "закрытая камера / турбо"
+    install = _label_install_type(intent.install_type) or "настенный"
+    chamber = _label_chamber(intent.chamber) or "закрытая камера / турбо"
     circuits = intent.circuits or 2
 
     models = [
@@ -344,3 +357,71 @@ def _stabilizer_answer(intent: EquipmentIntent) -> str:
         "• время автономии\n\n"
         "Дальше проверяем конкретную модель и наличие."
     )
+
+
+def _build_supplier_block(intent, search_result) -> str:
+    candidates = getattr(search_result, "candidates", []) or []
+    if not candidates:
+        return (
+            "🔎 <b>Прайсы поставщиков</b>\n"
+            "Пока не нашёл подходящих позиций в свежем кэше прайсов."
+        )
+
+    lines = ["🔎 <b>Прайсы поставщиков</b>"]
+
+    if intent.brand:
+        if getattr(search_result, "exact_brand_found", False):
+            lines.append(f"✅ Найден точный бренд: <b>{html.escape(intent.brand)}</b>")
+        else:
+            lines.append(
+                f"⚠️ Точный бренд <b>{html.escape(intent.brand)}</b> не найден, показываю ближайшие аналоги."
+            )
+
+    lines.append("")
+
+    for index, item in enumerate(candidates[:5], start=1):
+        price = _format_money(getattr(item, "price", None))
+        stock = _format_stock(getattr(item, "stock", None))
+
+        lines.append(f"{index}. <b>{html.escape(str(item.product_name))}</b>")
+        lines.append(f"   💰 {price} | 📦 {stock}")
+
+    return "\n".join(lines)
+
+
+def _format_money(value) -> str:
+    if value is None:
+        return "цена не указана"
+
+    try:
+        return f"{float(value):,.0f} ₽".replace(",", " ")
+    except Exception:
+        return str(value)
+
+
+def _format_stock(value) -> str:
+    if value is None:
+        return "остаток не указан"
+
+    try:
+        if value != value:  # NaN
+            return "остаток не указан"
+        return f"{float(value):g} шт."
+    except Exception:
+        return str(value)
+
+
+def _label_chamber(value: str | None) -> str | None:
+    if value == "closed":
+        return "закрытая камера / турбо"
+    if value == "open":
+        return "открытая камера / атмосферный"
+    return value
+
+
+def _label_install_type(value: str | None) -> str | None:
+    if value == "wall":
+        return "настенный"
+    if value == "floor":
+        return "напольный"
+    return value
