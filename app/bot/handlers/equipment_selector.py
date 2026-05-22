@@ -361,32 +361,92 @@ def _stabilizer_answer(intent: EquipmentIntent) -> str:
 
 def _build_supplier_block(intent, search_result) -> str:
     candidates = getattr(search_result, "candidates", []) or []
-    if not candidates:
-        return (
-            "🔎 <b>Прайсы поставщиков</b>\n"
-            "Пока не нашёл подходящих позиций в свежем кэше прайсов."
-        )
+    fallback_candidates = getattr(search_result, "fallback_candidates", None) or []
 
     lines = ["🔎 <b>Прайсы поставщиков</b>"]
 
-    if intent.brand:
-        if getattr(search_result, "exact_brand_found", False):
+    if candidates:
+        if intent.brand and getattr(search_result, "exact_brand_found", False):
             lines.append(f"✅ Найден точный бренд: <b>{html.escape(intent.brand)}</b>")
-        else:
-            lines.append(
-                f"⚠️ Точный бренд <b>{html.escape(intent.brand)}</b> не найден, показываю ближайшие аналоги."
-            )
 
-    lines.append("")
+        lines.append("")
+        lines.extend(_format_candidate_lines(candidates[:5], icon="✅"))
+        return "\n".join(lines)
+
+    if fallback_candidates:
+        lines.append("⚠️ Точного совпадения по всем условиям не нашёл.")
+        lines.append("Показываю ближайшие похожие варианты:")
+        lines.append("")
+        lines.extend(_format_candidate_lines(fallback_candidates[:5], icon="⚠️"))
+
+        note = _build_fallback_note(intent)
+        if note:
+            lines.append("")
+            lines.append(note)
+
+        return "\n".join(lines)
+
+    lines.append("❌ В свежих прайсах не нашёл подходящих позиций.")
+    note = _build_empty_result_note(intent)
+    if note:
+        lines.append("")
+        lines.append(note)
+
+    return "\n".join(lines)
+
+
+def _format_candidate_lines(candidates, icon: str) -> list[str]:
+    lines: list[str] = []
 
     for index, item in enumerate(candidates[:5], start=1):
         price = _format_money(getattr(item, "price", None))
         stock = _format_stock(getattr(item, "stock", None))
 
-        lines.append(f"{index}. <b>{html.escape(str(item.product_name))}</b>")
+        lines.append(f"{index}. {icon} <b>{html.escape(str(item.product_name))}</b>")
         lines.append(f"   💰 {price} | 📦 {stock}")
 
-    return "\n".join(lines)
+        reason = _label_relaxation_reason(getattr(item, "relaxation_reason", None))
+        if reason:
+            lines.append(f"   ↳ {reason}")
+
+    return lines
+
+
+def _build_fallback_note(intent) -> str | None:
+    if intent.category == "boiler" and intent.circuits:
+        return "⚠️ Проверь контурность: похожая позиция может отличаться от запроса."
+
+    if intent.category == "water_heater":
+        return "⚠️ Похожее не значит полная замена: проверь тип бойлера, объем, материал бака и рециркуляцию."
+
+    return None
+
+
+def _build_empty_result_note(intent) -> str | None:
+    if intent.category == "water_heater":
+        hints = []
+
+        if getattr(intent, "recirculation", None):
+            hints.append("без рециркуляции")
+
+        if getattr(intent, "tank_material", None):
+            hints.append("с другим материалом бака")
+
+        if getattr(intent, "volume_l", None) or getattr(intent, "volume_min_l", None):
+            hints.append("с соседним объемом")
+
+        if getattr(intent, "water_heater_type", None) in {"indirect", "tank_in_tank"}:
+            hints.append("по брендам ACV / Drazice / Hajdu / Baxi")
+
+        if hints:
+            return "Можно попробовать расширить поиск: " + ", ".join(hints) + "."
+
+        return "Можно уточнить бренд, объем, тип бака или монтаж."
+
+    if intent.category == "boiler":
+        return "Можно попробовать без точной серии или уточнить контурность/камеру."
+
+    return None
 
 
 def _format_money(value) -> str:
@@ -425,3 +485,16 @@ def _label_install_type(value: str | None) -> str | None:
     if value == "floor":
         return "напольный"
     return value
+
+
+
+def _label_relaxation_reason(reason: str | None) -> str | None:
+    labels = {
+        "closest_safe": "ближайшее безопасное совпадение",
+        "same_volume_other_heating_element": "тот же объем, но другой тип ТЭНа",
+        "same_heating_element_nearby_volume": "тот же тип ТЭНа, но соседний объем",
+        "same_volume_other_water_heater_type": "тот же объем, но другой тип бойлера",
+        "same_brand_power_other_specs": "тот же бренд/мощность, но отличаются камера или контуры",
+        "same_series_other_specs": "та же серия, но отличаются параметры",
+    }
+    return labels.get(reason)

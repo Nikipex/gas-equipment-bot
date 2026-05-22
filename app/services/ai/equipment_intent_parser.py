@@ -16,7 +16,15 @@ class EquipmentIntent:
     brand: str | None = None
     power_kw: float | None = None
     volume_l: int | None = None
+    volume_min_l: int | None = None
+    volume_max_l: int | None = None
     circuits: int | None = None
+    boiler_type: str | None = None
+    water_heater_type: str | None = None
+    tank_material: str | None = None
+    tank_coating: str | None = None
+    heating_element: str | None = None
+    recirculation: bool | None = None
     chamber: str | None = None
     install_type: str | None = None
     query_for_supplier_search: str = ""
@@ -31,7 +39,14 @@ class EquipmentIntentParser:
         brand = self._detect_brand(low)
         power_kw = self._extract_power(low)
         volume_l = self._extract_volume(low)
+        volume_min_l, volume_max_l = self._extract_volume_range(low)
+        water_heater_type = self._extract_water_heater_type(low)
+        tank_material = self._extract_tank_material(low)
+        tank_coating = self._extract_tank_coating(low)
+        heating_element = self._extract_heating_element(low)
+        recirculation = self._extract_recirculation(low)
         circuits = self._extract_circuits(low)
+        boiler_type = self._extract_boiler_type(low)
         chamber = self._extract_chamber(low)
         install_type = self._extract_install_type(low)
 
@@ -40,7 +55,15 @@ class EquipmentIntentParser:
             brand=brand,
             power_kw=power_kw,
             volume_l=volume_l,
+            volume_min_l=volume_min_l,
+            volume_max_l=volume_max_l,
             circuits=circuits,
+            boiler_type=boiler_type,
+            water_heater_type=water_heater_type,
+            tank_material=tank_material,
+            tank_coating=tank_coating,
+            heating_element=heating_element,
+            recirculation=recirculation,
             chamber=chamber,
             install_type=install_type,
             raw_text=text,
@@ -51,7 +74,15 @@ class EquipmentIntentParser:
             brand=brand,
             power_kw=power_kw,
             volume_l=volume_l,
+            volume_min_l=volume_min_l,
+            volume_max_l=volume_max_l,
             circuits=circuits,
+            boiler_type=boiler_type,
+            water_heater_type=water_heater_type,
+            tank_material=tank_material,
+            tank_coating=tank_coating,
+            heating_element=heating_element,
+            recirculation=recirculation,
             chamber=chamber,
             install_type=install_type,
             query_for_supplier_search=query,
@@ -64,7 +95,7 @@ class EquipmentIntentParser:
 
         # Убираем служебные слова, оставляем модельные куски.
         remove = [
-            "подбор", "подбери", "подобрать", "котел", "котёл", "газовый",
+            "подбор", "подбери", "подобрать", "нужен", "нужна", "нужно", "ищем", "клиенту", "котел", "котёл", "газовый",
             "настенный", "напольный", "турбо", "атмо", "атмосферный",
             "закрытая", "открытая", "камера", "на", "квт", "kw",
         ]
@@ -75,6 +106,11 @@ class EquipmentIntentParser:
         brand_aliases = {
             "Baxi": ["baxi", "бакси"],
             "Ariston": ["ariston", "аристон"],
+            "Midea": ["midea", "мидеа"],
+            "Thermex": ["thermex", "термекс"],
+            "Edisson": ["edisson", "эдисон"],
+            "Garanterm": ["garanterm", "гарантерм"],
+            "Midea": ["midea", "мидеа"],
             "Navien": ["navien", "навьен", "навиен"],
             "Ferroli": ["ferroli", "ферроли"],
         }
@@ -123,6 +159,14 @@ class EquipmentIntentParser:
             "ферроли": "Ferroli",
             "ariston": "Ariston",
             "аристон": "Ariston",
+            "midea": "Midea",
+            "мидеа": "Midea",
+            "thermex": "Thermex",
+            "термекс": "Thermex",
+            "edisson": "Edisson",
+            "эдисон": "Edisson",
+            "garanterm": "Garanterm",
+            "гарантерм": "Garanterm",
             "protherm": "Protherm",
             "протерм": "Protherm",
             "bosch": "Bosch",
@@ -154,10 +198,82 @@ class EquipmentIntentParser:
         return float(m.group(1).replace(",", "."))
 
     def _extract_volume(self, low: str) -> int | None:
+        m = re.search(r"(?:литр\w*\s*на\s*)(\d{2,4})", low)
+        if m:
+            return int(m.group(1))
+
         m = re.search(r"(\d{2,4})\s*(?:л|литр|литров)", low)
-        if not m:
-            return None
-        return int(m.group(1))
+        if m:
+            return int(m.group(1))
+
+        # Для бойлеров/водонагревателей часто пишут просто "Аристон 80 сухой тэн"
+        if re.search(r"бойлер|водонагрев|ariston|аристон|thermex|термекс", low):
+            nums = [int(x) for x in re.findall(r"(?<!\d)(\d{2,4})(?!\d)", low)]
+            nums = [x for x in nums if 30 <= x <= 500]
+            if nums:
+                return nums[0]
+
+        return None
+
+
+    def _extract_volume_range(self, low: str) -> tuple[int | None, int | None]:
+        import re
+
+        # "100-120", "100 до 120", "от 100 до 120"
+        m = re.search(r"(?:от\s*)?(\d{2,4})\s*(?:-|–|—|до)\s*(\d{2,4})\s*(?:л|литр|литров)?", low)
+        if m:
+            left = int(m.group(1))
+            right = int(m.group(2))
+            return min(left, right), max(left, right)
+
+        # "литров на 100-120"
+        m = re.search(r"литр\w*\s*на\s*(\d{2,4})\s*(?:-|–|—|до)\s*(\d{2,4})", low)
+        if m:
+            left = int(m.group(1))
+            right = int(m.group(2))
+            return min(left, right), max(left, right)
+
+        return None, None
+
+    def _extract_water_heater_type(self, low: str) -> str | None:
+        if "бак в баке" in low or "бак-в-баке" in low or "tank in tank" in low:
+            return "tank_in_tank"
+
+        if "косвен" in low or "косвенник" in low:
+            return "indirect"
+
+        if "электр" in low or "тэн" in low or "тен" in low:
+            return "electric"
+
+        if "газов" in low and ("накоп" in low or "бойлер" in low):
+            return "gas_storage"
+
+        return None
+
+    def _extract_tank_material(self, low: str) -> str | None:
+        if "нерж" in low or "нержав" in low or "inox" in low:
+            return "stainless"
+        return None
+
+    def _extract_tank_coating(self, low: str) -> str | None:
+        if "эмаль" in low or "эмал" in low or "биостекло" in low or "стеклофарфор" in low:
+            return "enamel"
+        return None
+
+
+    def _extract_heating_element(self, low: str) -> str | None:
+        if "сухой тэн" in low or "сухой тен" in low or "dry" in low or "стеатит" in low:
+            return "dry"
+
+        if "мокрый тэн" in low or "мокрый тен" in low:
+            return "wet"
+
+        return None
+
+    def _extract_recirculation(self, low: str) -> bool | None:
+        if "рециркуляц" in low or "рецирк" in low:
+            return True
+        return None
 
     def _extract_circuits(self, low: str) -> int | None:
         # Baxi-style model logic:
@@ -174,6 +290,19 @@ class EquipmentIntentParser:
 
         if re.search(r"одноконт|1\s*конт|1\s*контур|один\s*конт", low):
             return 1
+
+        return None
+
+
+    def _extract_boiler_type(self, low: str) -> str | None:
+        if "парапет" in low:
+            return "parapet"
+
+        if "напольн" in low or "аогв" in low or "ксг" in low:
+            return "floor"
+
+        if "настенн" in low or "настен" in low:
+            return "wall"
 
         return None
 
@@ -198,7 +327,15 @@ class EquipmentIntentParser:
         brand: str | None,
         power_kw: float | None,
         volume_l: int | None,
+        volume_min_l: int | None,
+        volume_max_l: int | None,
         circuits: int | None,
+        boiler_type: str | None,
+        water_heater_type: str | None,
+        tank_material: str | None,
+        tank_coating: str | None,
+        heating_element: str | None,
+        recirculation: bool | None,
         chamber: str | None,
         install_type: str | None,
         raw_text: str,
@@ -213,7 +350,12 @@ class EquipmentIntentParser:
             parts.append(model_tail)
 
         if category == "boiler":
-            parts.append("котел")
+            if boiler_type == "parapet":
+                parts.append("парапетный котел")
+            elif boiler_type == "floor":
+                parts.append("напольный котел")
+            else:
+                parts.append("котел")
             if install_type == "wall":
                 parts.append("настенный")
             elif install_type == "floor":
@@ -233,11 +375,34 @@ class EquipmentIntentParser:
                 parts.append(f"{power_kw:g} кВт")
 
         elif category == "water_heater":
-            if "косвен" in raw_text.lower() or "косвенник" in raw_text.lower():
+            if water_heater_type == "tank_in_tank":
+                parts.append("бойлер бак в баке")
+            elif water_heater_type == "indirect":
                 parts.append("бойлер косвенного нагрева")
             else:
                 parts.append("водонагреватель")
-            if volume_l:
+
+            if install_type == "wall":
+                parts.append("настенный")
+            elif install_type == "floor":
+                parts.append("напольный")
+
+            if recirculation:
+                parts.append("с рециркуляцией")
+
+            if tank_material == "stainless":
+                parts.append("нержавейка")
+            elif tank_coating == "enamel":
+                parts.append("эмаль")
+
+            if heating_element == "dry":
+                parts.append("сухой тэн")
+            elif heating_element == "wet":
+                parts.append("мокрый тэн")
+
+            if volume_min_l and volume_max_l:
+                parts.append(f"{volume_min_l}-{volume_max_l} л")
+            elif volume_l:
                 parts.append(f"{volume_l} л")
 
         elif category == "gas_column":
