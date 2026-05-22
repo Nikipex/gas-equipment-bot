@@ -58,3 +58,12 @@ scripts/max_poll_files.py
 # =========================
 app/integrations/max/
 
+# supplier runtime data
+data/supplier_prices/inbox/*
+data/supplier_prices/processed/*
+data/supplier_prices/_archive*
+data/supplier_prices/.processed_markers/*
+
+!data/supplier_prices/inbox/.gitkeep
+!data/supplier_prices/processed/.gitkeep
+!data/supplier_prices/.processed_markers/.gitkeep
