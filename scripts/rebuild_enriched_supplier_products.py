@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.services.equipment.supplier_product_enricher import enrich_product
+from app.services.equipment.chimney_enricher import enrich_chimney
 
 
 SOURCE = Path("data/supplier_prices/processed/supplier_products.csv")
@@ -19,10 +20,11 @@ def main() -> None:
     for _, row in df.iterrows():
         name = str(row.get("product_name", ""))
         facts = enrich_product(name)
+        chimney_data = enrich_chimney({"product_name": name})
 
         facts_rows.append(
             {
-                "category": facts.category,
+                "category": chimney_data.get("category") or facts.category,
                 "equipment_type": facts.equipment_type,
                 "boiler_type": facts.boiler_type,
                 "power_kw": facts.power_kw,
@@ -36,6 +38,10 @@ def main() -> None:
                 "body_shape": facts.body_shape,
                 "flue_exit": facts.flue_exit,
                 "is_accessory": facts.is_accessory,
+                "chimney_system": chimney_data.get("chimney_system"),
+                "chimney_type": chimney_data.get("chimney_type"),
+                "chimney_diameter": chimney_data.get("chimney_diameter"),
+                "chimney_brand": chimney_data.get("chimney_brand"),
             }
         )
 
@@ -49,7 +55,29 @@ def main() -> None:
     print("TARGET:", TARGET)
     print("ROWS:", len(out))
     print()
-    print(out[["product_name", "category", "boiler_type", "power_kw", "volume_l", "form_factor", "circuits", "orientation", "gas_automation", "connection", "chimney_diameter_mm", "body_shape", "flue_exit", "is_accessory"]].head(30).to_string())
+
+    preview_cols = [
+        "product_name",
+        "category",
+        "boiler_type",
+        "power_kw",
+        "volume_l",
+        "form_factor",
+        "circuits",
+        "orientation",
+        "gas_automation",
+        "connection",
+        "chimney_system",
+        "chimney_type",
+        "chimney_diameter",
+        "chimney_brand",
+        "body_shape",
+        "flue_exit",
+        "is_accessory",
+    ]
+
+    existing_cols = [c for c in preview_cols if c in out.columns]
+    print(out[existing_cols].head(30).to_string())
 
 
 if __name__ == "__main__":
