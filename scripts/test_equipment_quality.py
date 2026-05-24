@@ -7,6 +7,9 @@ from typing import Callable
 from app.services.ai.equipment_intent_parser import EquipmentIntentParser
 from app.services.equipment.equipment_search_pipeline import EquipmentSearchPipeline
 from app.services.equipment.product_specs_service import ProductSpecsService, build_specs_text
+from app.services.equipment.quote_builder_service import QuoteBuilderService, build_quote_text
+from app.services.equipment.product_analog_service import ProductAnalogService, build_analogs_text
+from app.services.equipment.chimney_search_service import ChimneySearchService, build_chimney_text
 
 
 @dataclass(frozen=True)
@@ -325,6 +328,185 @@ def run_specs_cases(service: ProductSpecsService) -> tuple[int, int]:
     return passed, total
 
 
+
+
+def run_quote_cases() -> tuple[int, int]:
+    print("\n" + "=" * 100)
+    print("QUOTE TESTS")
+    print("=" * 100)
+
+    service = QuoteBuilderService()
+
+    text = """
+Лемакс Патриот 10 x2
+Ariston PRO1 R 80 DRY x1
+Midea FEM 50 x3
+"""
+
+    lines = service.build(text)
+    quote = build_quote_text(lines)
+    low = norm(quote)
+
+    failures = []
+
+    for expected in [
+        "лемакс патриот",
+        "аристон pro1",
+        "midea",
+        "итого",
+        "121 496",
+    ]:
+        if expected not in low:
+            failures.append(f"missing: {expected}")
+
+    if len(lines) != 3:
+        failures.append(f"expected 3 lines, got {len(lines)}")
+
+    if failures:
+        print("❌ FAIL | quote builder basic")
+        print(quote)
+        for item in failures:
+            print("   -", item)
+        return 0, 1
+
+    print("✅ PASS | quote builder basic")
+    return 1, 1
+
+
+
+
+def run_analog_cases() -> tuple[int, int]:
+    print("\n" + "=" * 100)
+    print("ANALOG TESTS")
+    print("=" * 100)
+
+    service = ProductAnalogService()
+
+    cases = [
+        {
+            "name": "Baxi wall turbo analogs exclude garbage",
+            "query": "Бакси ECO LIFE 24F",
+            "must_include_any": ["buran", "вайлант", "vuw"],
+            "must_not_include_any": ["эван", "лемакс", "artu", "аогв", "газовик"],
+        },
+        {
+            "name": "Lemax Patriot analog finds Artek parapet",
+            "query": "Лемакс Патриот 10",
+            "must_include_any": ["артек", "ксгз", "парапет"],
+            "must_not_include_any": ["orso ксг"],
+        },
+        {
+            "name": "Midea flat 50 analogs stay flat",
+            "query": "Midea FEM 50",
+            "must_include_any": ["плоск", "slim", "if"],
+            "must_not_include_any": ["круг."],
+        },
+    ]
+
+    passed = 0
+
+    for case in cases:
+        source, analogs = service.find_analogs(case["query"])
+        text = build_analogs_text(source, analogs)
+        low = norm(text)
+
+        failures = []
+
+        if not analogs:
+            failures.append("no analogs found")
+
+        if not any(norm(x) in low for x in case["must_include_any"]):
+            failures.append(f"must include any: {case['must_include_any']}")
+
+        bad = [x for x in case["must_not_include_any"] if norm(x) in low]
+        if bad:
+            failures.append(f"must NOT include found: {bad}")
+
+        if failures:
+            print(f"❌ FAIL | {case['name']}")
+            print(text)
+            for item in failures:
+                print("   -", item)
+        else:
+            passed += 1
+            print(f"✅ PASS | {case['name']}")
+
+    return passed, len(cases)
+
+
+
+
+def run_chimney_cases() -> tuple[int, int]:
+    print("\n" + "=" * 100)
+    print("CHIMNEY TESTS")
+    print("=" * 100)
+
+    service = ChimneySearchService()
+
+    cases = [
+        {
+            "name": "coaxial kit 60/100",
+            "query": "коаксиальный комплект 60/100",
+            "must_include_any": ["комплект", "60/100"],
+            "must_not_include_any": ["электрокотел", "аогв"],
+        },
+        {
+            "name": "Baxi adapter 60/100 to 80/80",
+            "query": "адаптер 60/100 на 80/80 Baxi",
+            "must_include_any": ["адаптер", "60/100", "80/80", "baxi"],
+            "must_not_include_any": ["котел настенный"],
+        },
+        {
+            "name": "elbow 80/125",
+            "query": "колено 80/125",
+            "must_include_any": ["отвод", "колено", "80/125"],
+            "must_not_include_any": ["котел"],
+        },
+        {
+            "name": "condensate d80",
+            "query": "конденсатоотвод d80",
+            "must_include_any": ["конденсат", "80"],
+            "must_not_include_any": ["дымоход диаметр- 80 l"],
+        },
+        {
+            "name": "condensate 60/100",
+            "query": "конденсатосборник 60/100",
+            "must_include_any": ["конденсат", "60/100"],
+            "must_not_include_any": ["электрокотел"],
+        },
+    ]
+
+    passed = 0
+
+    for case in cases:
+        rows = service.search(case["query"])
+        text = build_chimney_text(case["query"], rows)
+        low = norm(text)
+
+        failures = []
+
+        if not rows:
+            failures.append("no rows found")
+
+        if not any(norm(x) in low for x in case["must_include_any"]):
+            failures.append(f"must include any: {case['must_include_any']}")
+
+        bad = [x for x in case["must_not_include_any"] if norm(x) in low]
+        if bad:
+            failures.append(f"must NOT include found: {bad}")
+
+        if failures:
+            print(f"❌ FAIL | {case['name']}")
+            print(text)
+            for item in failures:
+                print("   -", item)
+        else:
+            passed += 1
+            print(f"✅ PASS | {case['name']}")
+
+    return passed, len(cases)
+
+
 async def main() -> None:
     parser = EquipmentIntentParser()
     pipeline = EquipmentSearchPipeline()
@@ -337,6 +519,9 @@ async def main() -> None:
         await run_intent_cases(parser),
         await run_search_cases(parser, pipeline),
         run_specs_cases(specs_service),
+        run_quote_cases(),
+        run_analog_cases(),
+        run_chimney_cases(),
     ]:
         total_passed += passed
         total_count += count

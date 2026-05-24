@@ -21,12 +21,18 @@ from app.services.ai.equipment_intent_parser import EquipmentIntentParser
 
 from app.services.equipment.equipment_search_pipeline import EquipmentSearchPipeline
 from app.services.equipment.product_specs_service import ProductSpecsService, build_specs_text
+from app.services.equipment.quote_builder_service import QuoteBuilderService, build_quote_text
+from app.services.equipment.product_analog_service import ProductAnalogService, build_analogs_text
+from app.services.equipment.chimney_search_service import ChimneySearchService, build_chimney_text
 
 router = Router()
 intent_parser = EquipmentIntentParser()
 equipment_pipeline = EquipmentSearchPipeline()
 search_pipeline = equipment_pipeline
 product_specs_service = ProductSpecsService()
+quote_builder_service = QuoteBuilderService()
+product_analog_service = ProductAnalogService()
+chimney_search_service = ChimneySearchService()
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,91 @@ class EquipmentIntent:
 
 
 
+
+
+
+
+
+
+
+
+@router.message(lambda message: message.text and message.text.lower().startswith(("/chimney ", "дымоход ", "коаксиал ", "коакс ", "колено ", "адаптер ", "конденсатоотвод ", "конденсатосборник ")))
+async def process_chimney_search(message: Message) -> None:
+    text = message.text or ""
+
+    query = text
+    for prefix in ["/chimney", "дымоход", "коаксиал", "коакс", "колено", "адаптер", "конденсатоотвод", "конденсатосборник"]:
+        if query.lower().startswith(prefix):
+            query = query[len(prefix):].strip()
+            query = f"{prefix} {query}".strip()
+            break
+
+    rows = chimney_search_service.search(query, limit=7)
+
+    await message.answer(
+        build_chimney_text(query, rows)[:3900],
+        reply_markup=main_menu_kb,
+    )
+
+
+@router.message(lambda message: message.text and message.text.lower().startswith(("/analog ", "аналоги ", "замена ")))
+async def process_product_analogs(message: Message) -> None:
+    text = message.text or ""
+
+    query = text
+    for prefix in ["/analog", "аналоги", "замена"]:
+        if query.lower().startswith(prefix):
+            query = query[len(prefix):].strip()
+            break
+
+    if not query:
+        await message.answer(
+            "Напиши товар после команды. Например: <code>аналоги Бакси ECO LIFE 24F</code>",
+            reply_markup=main_menu_kb,
+        )
+        return
+
+    source, analogs = product_analog_service.find_analogs(query, limit=7)
+
+    await message.answer(
+        build_analogs_text(source, analogs)[:3900],
+        reply_markup=main_menu_kb,
+    )
+
+
+@router.message(lambda message: message.text and message.text.lower().startswith(("кп:", "сделай кп", "/quote ")))
+async def process_quote_builder(message: Message) -> None:
+    text = message.text or ""
+
+    query = text
+    for prefix in ["кп:", "сделай кп", "/quote"]:
+        if query.lower().startswith(prefix):
+            query = query[len(prefix):].strip()
+            break
+
+    if not query:
+        await message.answer(
+            "Напиши позиции списком. Например:\n"
+            "<code>КП:\n"
+            "Лемакс Патриот 10 x2\n"
+            "Ariston PRO1 R 80 DRY x1</code>",
+            reply_markup=main_menu_kb,
+        )
+        return
+
+    lines = quote_builder_service.build(query)
+
+    if not lines:
+        await message.answer(
+            "Не смог разобрать позиции. Напиши каждую позицию с новой строки.",
+            reply_markup=main_menu_kb,
+        )
+        return
+
+    await message.answer(
+        build_quote_text(lines)[:3900],
+        reply_markup=main_menu_kb,
+    )
 
 
 @router.message(lambda message: message.text and message.text.lower().startswith(("/spec ", "/characteristics ", "характеристики ")))
