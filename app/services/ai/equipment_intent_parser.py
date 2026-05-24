@@ -15,6 +15,8 @@ class EquipmentIntent:
     category: str
     brand: str | None = None
     power_kw: float | None = None
+    power_min_kw: float | None = None
+    power_max_kw: float | None = None
     volume_l: int | None = None
     volume_min_l: int | None = None
     volume_max_l: int | None = None
@@ -24,6 +26,7 @@ class EquipmentIntent:
     tank_material: str | None = None
     tank_coating: str | None = None
     heating_element: str | None = None
+    form_factor: str | None = None
     recirculation: bool | None = None
     chamber: str | None = None
     install_type: str | None = None
@@ -31,6 +34,8 @@ class EquipmentIntent:
     gas_automation: str | None = None
     connection: str | None = None
     chimney_diameter_mm: int | None = None
+    body_shape: str | None = None
+    flue_exit: str | None = None
     query_for_supplier_search: str = ""
     raw_text: str = ""
 
@@ -42,12 +47,14 @@ class EquipmentIntentParser:
         category = self._detect_category(low)
         brand = self._detect_brand(low)
         power_kw = self._extract_power(low)
+        power_min_kw, power_max_kw = self._extract_power_range(low)
         volume_l = self._extract_volume(low)
         volume_min_l, volume_max_l = self._extract_volume_range(low)
         water_heater_type = self._extract_water_heater_type(low)
         tank_material = self._extract_tank_material(low)
         tank_coating = self._extract_tank_coating(low)
         heating_element = self._extract_heating_element(low)
+        form_factor = self._extract_form_factor(low)
         recirculation = self._extract_recirculation(low)
         circuits = self._extract_circuits(low)
         boiler_type = self._extract_boiler_type(low)
@@ -57,11 +64,15 @@ class EquipmentIntentParser:
         gas_automation = self._extract_gas_automation(low)
         connection = self._extract_connection(low)
         chimney_diameter_mm = self._extract_chimney_diameter_mm(low)
+        body_shape = self._extract_body_shape(low)
+        flue_exit = self._extract_flue_exit(low)
 
         query = self._build_supplier_query(
             category=category,
             brand=brand,
             power_kw=power_kw,
+            power_min_kw=power_min_kw,
+            power_max_kw=power_max_kw,
             volume_l=volume_l,
             volume_min_l=volume_min_l,
             volume_max_l=volume_max_l,
@@ -71,6 +82,7 @@ class EquipmentIntentParser:
             tank_material=tank_material,
             tank_coating=tank_coating,
             heating_element=heating_element,
+            form_factor=self._extract_form_factor(low),
             recirculation=recirculation,
             chamber=chamber,
             install_type=install_type,
@@ -78,6 +90,8 @@ class EquipmentIntentParser:
             gas_automation=gas_automation,
             connection=connection,
             chimney_diameter_mm=chimney_diameter_mm,
+            body_shape=body_shape,
+            flue_exit=flue_exit,
             raw_text=text,
         )
 
@@ -85,6 +99,8 @@ class EquipmentIntentParser:
             category=category,
             brand=brand,
             power_kw=power_kw,
+            power_min_kw=power_min_kw,
+            power_max_kw=power_max_kw,
             volume_l=volume_l,
             volume_min_l=volume_min_l,
             volume_max_l=volume_max_l,
@@ -94,6 +110,7 @@ class EquipmentIntentParser:
             tank_material=tank_material,
             tank_coating=tank_coating,
             heating_element=heating_element,
+            form_factor=form_factor,
             recirculation=recirculation,
             chamber=chamber,
             install_type=install_type,
@@ -101,6 +118,8 @@ class EquipmentIntentParser:
             gas_automation=gas_automation,
             connection=connection,
             chimney_diameter_mm=chimney_diameter_mm,
+            body_shape=body_shape,
+            flue_exit=flue_exit,
             query_for_supplier_search=query,
             raw_text=text,
         )
@@ -156,6 +175,9 @@ class EquipmentIntentParser:
             return "radiator"
         if re.search(r"насос|циркуляцион|25/6|25-6", low):
             return "pump"
+        if re.search(r"котел|котёл|котлы|напольник|напольный кот", low):
+            return "boiler"
+
         if re.search(r"дымоход|коаксиал|колено|труба", low):
             return "chimney"
         if re.search(r"стабилизатор|ибп|ups|напряж", low):
@@ -213,6 +235,22 @@ class EquipmentIntentParser:
             return None
         return float(m.group(1).replace(",", "."))
 
+
+    def _extract_power_range(self, low: str) -> tuple[float | None, float | None]:
+        import re
+
+        m = re.search(r"(\d+(?:[,.]\d+)?)\s*(?:-|–|—|до)\s*(\d+(?:[,.]\d+)?)\s*(?:квт|kw)", low)
+        if not m:
+            return None, None
+
+        left = float(m.group(1).replace(",", "."))
+        right = float(m.group(2).replace(",", "."))
+
+        if 1 <= left <= 200 and 1 <= right <= 200:
+            return min(left, right), max(left, right)
+
+        return None, None
+
     def _extract_volume(self, low: str) -> int | None:
         m = re.search(r"(?:литр\w*\s*на\s*)(\d{2,4})", low)
         if m:
@@ -252,6 +290,27 @@ class EquipmentIntentParser:
             return "side"
         return None
 
+
+    def _extract_body_shape(self, low: str) -> str | None:
+        if "кругл" in low or "цилиндр" in low:
+            return "round"
+
+        if "квадрат" in low or "прямоуг" in low:
+            return "rectangular"
+
+        return None
+
+    def _extract_flue_exit(self, low: str) -> str | None:
+        # Только если явно говорят про выход дымохода.
+        if "выход" in low or "дымоход" in low or "дым" in low:
+            if "верх" in low or "вертик" in low:
+                return "vertical"
+
+            if "задн" in low or "гориз" in low:
+                return "horizontal"
+
+        return None
+
     def _extract_chimney_diameter_mm(self, low: str) -> int | None:
         import re
 
@@ -274,8 +333,12 @@ class EquipmentIntentParser:
     def _extract_volume_range(self, low: str) -> tuple[int | None, int | None]:
         import re
 
-        # "100-120", "100 до 120", "от 100 до 120"
-        m = re.search(r"(?:от\s*)?(\d{2,4})\s*(?:-|–|—|до)\s*(\d{2,4})\s*(?:л|литр|литров)?", low)
+        # Не считаем диапазоны мощности объемом: "10-12 кВт"
+        if re.search(r"\d{1,3}\s*(?:-|–|—|до)\s*\d{1,3}\s*(?:квт|kw)", low):
+            return None, None
+
+        # "100-120 л", "100 до 120 литров", "от 100 до 120 л"
+        m = re.search(r"(?:от\s*)?(\d{2,4})\s*(?:-|–|—|до)\s*(\d{2,4})\s*(?:л|литр|литров)", low)
         if m:
             left = int(m.group(1))
             right = int(m.group(2))
@@ -315,6 +378,16 @@ class EquipmentIntentParser:
             return "enamel"
         return None
 
+
+
+    def _extract_form_factor(self, low: str) -> str | None:
+        if "плоск" in low or "slim" in low or "flat" in low:
+            return "flat"
+
+        if "круг" in low or "цилиндр" in low:
+            return "round"
+
+        return None
 
     def _extract_heating_element(self, low: str) -> str | None:
         if "сухой тэн" in low or "сухой тен" in low or "dry" in low or "стеатит" in low:
@@ -381,7 +454,9 @@ class EquipmentIntentParser:
         category: str,
         brand: str | None,
         power_kw: float | None,
-        volume_l: int | None,
+        power_min_kw: float | None = None,
+        power_max_kw: float | None = None,
+        volume_l: int | None = None,
         volume_min_l: int | None,
         volume_max_l: int | None,
         circuits: int | None,
@@ -390,13 +465,16 @@ class EquipmentIntentParser:
         tank_material: str | None,
         tank_coating: str | None,
         heating_element: str | None,
-        recirculation: bool | None,
+        form_factor: str | None = None,
+        recirculation: bool | None = None,
         chamber: str | None,
         install_type: str | None,
         orientation: str | None = None,
         gas_automation: str | None = None,
         connection: str | None = None,
         chimney_diameter_mm: int | None = None,
+        body_shape: str | None = None,
+        flue_exit: str | None = None,
         raw_text: str = "",
     ) -> str:
         parts: list[str] = []
@@ -430,7 +508,9 @@ class EquipmentIntentParser:
             elif circuits == 1:
                 parts.append("одноконтурный")
 
-            if power_kw:
+            if power_min_kw and power_max_kw:
+                parts.append(f"{power_min_kw:g}-{power_max_kw:g} кВт")
+            elif power_kw:
                 parts.append(f"{power_kw:g} кВт")
 
         elif category == "water_heater":
@@ -458,6 +538,11 @@ class EquipmentIntentParser:
                 parts.append("сухой тэн")
             elif heating_element == "wet":
                 parts.append("мокрый тэн")
+
+            if form_factor == "flat":
+                parts.append("плоский")
+            elif form_factor == "round":
+                parts.append("круглый")
 
             if volume_min_l and volume_max_l:
                 parts.append(f"{volume_min_l}-{volume_max_l} л")

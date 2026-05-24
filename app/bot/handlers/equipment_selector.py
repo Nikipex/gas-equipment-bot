@@ -20,11 +20,13 @@ from app.bot.keyboards.main_menu import main_menu_kb
 from app.services.ai.equipment_intent_parser import EquipmentIntentParser
 
 from app.services.equipment.equipment_search_pipeline import EquipmentSearchPipeline
+from app.services.equipment.product_specs_service import ProductSpecsService, build_specs_text
 
 router = Router()
 intent_parser = EquipmentIntentParser()
 equipment_pipeline = EquipmentSearchPipeline()
 search_pipeline = equipment_pipeline
+product_specs_service = ProductSpecsService()
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,40 @@ class EquipmentIntent:
     raw_text: str
 
 
+
+
+
+
+@router.message(lambda message: message.text and message.text.lower().startswith(("/spec ", "/characteristics ", "характеристики ")))
+async def process_product_specs(message: Message) -> None:
+    text = message.text or ""
+
+    query = text
+    for prefix in ["/spec", "/characteristics", "характеристики"]:
+        if query.lower().startswith(prefix):
+            query = query[len(prefix):].strip()
+            break
+
+    if not query:
+        await message.answer(
+            "Напиши модель после команды. Например: <code>характеристики Лемакс Патриот 10</code>",
+            reply_markup=main_menu_kb,
+        )
+        return
+
+    matches = product_specs_service.find(query, limit=5)
+
+    if not matches:
+        await message.answer(
+            "❌ Не нашёл товар в прайсах. Попробуй указать бренд/модель точнее.",
+            reply_markup=main_menu_kb,
+        )
+        return
+
+    await message.answer(
+        build_specs_text(matches[0])[:3900],
+        reply_markup=main_menu_kb,
+    )
 
 
 @router.message(lambda message: message.text and message.text.lower().startswith("/debug_equipment "))
@@ -93,8 +129,15 @@ async def process_equipment_selection(message: Message) -> None:
     try:
         search_result = await equipment_pipeline.search(intent)
         supplier_block = _build_supplier_block(intent, search_result)
-        if supplier_block:
+
+        if supplier_block and (
+            getattr(search_result, "candidates", None)
+            or getattr(search_result, "fallback_candidates", None)
+        ):
+            answer = supplier_block
+        elif supplier_block:
             answer = answer + "\n\n" + supplier_block
+
     except Exception as exc:
         logger.exception(f"Equipment supplier search failed: {exc}")
 
@@ -403,16 +446,27 @@ def _build_supplier_block(intent, search_result) -> str:
 
     lines = ["🔎 <b>Прайсы поставщиков</b>"]
 
+    lines.append("")
+    lines.append("🧾 <b>Что понял по запросу:</b>")
+    lines.extend(_format_detected_filters(intent))
+
     if candidates:
+        lines.append("")
+        lines.append("✅ <b>Подходящие позиции:</b>")
+
         if intent.brand and getattr(search_result, "exact_brand_found", False):
-            lines.append(f"✅ Найден точный бренд: <b>{html.escape(intent.brand)}</b>")
+            lines.append(f"Бренд совпал: <b>{html.escape(intent.brand)}</b>")
 
         lines.append("")
         lines.extend(_format_candidate_lines(candidates[:5], icon="✅"))
+        lines.append("")
+        lines.append("📌 <b>Перед предложением клиенту:</b>")
+        lines.extend(_manager_checklist(intent))
         return "\n".join(lines)
 
     if fallback_candidates:
-        lines.append("⚠️ Точного совпадения по всем условиям не нашёл.")
+        lines.append("")
+        lines.append("⚠️ <b>Точного совпадения по всем условиям не нашёл.</b>")
         lines.append("Показываю ближайшие похожие варианты:")
         lines.append("")
         lines.extend(_format_candidate_lines(fallback_candidates[:5], icon="⚠️"))
@@ -424,13 +478,157 @@ def _build_supplier_block(intent, search_result) -> str:
 
         return "\n".join(lines)
 
-    lines.append("❌ В свежих прайсах не нашёл подходящих позиций.")
+    lines.append("")
+    lines.append("❌ <b>В свежих прайсах не нашёл подходящих позиций.</b>")
     note = _build_empty_result_note(intent)
     if note:
         lines.append("")
         lines.append(note)
 
     return "\n".join(lines)
+
+
+def _format_detected_filters(intent) -> list[str]:
+    items = []
+
+    labels = {
+        "category": {
+            "boiler": "котёл",
+            "water_heater": "бойлер / водонагреватель",
+            "pump": "насос",
+            "chimney": "дымоход / коаксиал",
+            "radiator": "радиатор",
+            "stabilizer": "стабилизатор / ИБП",
+            "generic": "оборудование",
+        },
+        "boiler_type": {
+            "wall": "настенный",
+            "floor": "напольный",
+            "parapet": "парапетный",
+        },
+        "water_heater_type": {
+            "electric": "электрический",
+            "indirect": "косвенного нагрева",
+            "tank_in_tank": "бак-в-баке",
+        },
+        "chamber": {
+            "open": "открытая / атмосферный",
+            "closed": "закрытая / турбо",
+        },
+        "install_type": {
+            "wall": "настенный",
+            "floor": "напольный",
+        },
+        "orientation": {
+            "vertical": "выход дымохода вверх / вертикальный",
+            "horizontal": "выход дымохода назад / горизонтальный",
+        },
+        "gas_automation": {
+            "sit": "SIT",
+            "tgv": "TGV",
+        },
+        "connection": {
+            "side": "боковой подвод",
+        },
+        "body_shape": {
+            "round": "круглый корпус",
+            "rectangular": "прямоугольный корпус",
+        },
+        "flue_exit": {
+            "vertical": "верхний / вертикальный выход дымохода",
+            "horizontal": "задний / горизонтальный выход дымохода",
+        },
+        "tank_material": {
+            "stainless": "нержавейка",
+        },
+        "tank_coating": {
+            "enamel": "эмаль",
+        },
+        "heating_element": {
+            "dry": "сухой ТЭН",
+            "wet": "мокрый ТЭН",
+        },
+    }
+
+    category = getattr(intent, "category", None)
+    if category:
+        items.append(f"• тип: <b>{labels['category'].get(category, category)}</b>")
+
+    brand = getattr(intent, "brand", None)
+    if brand:
+        items.append(f"• бренд: <b>{html.escape(str(brand))}</b>")
+
+    for attr, label_name in [
+        ("boiler_type", "boiler_type"),
+        ("water_heater_type", "water_heater_type"),
+        ("install_type", "install_type"),
+        ("chamber", "chamber"),
+        ("orientation", "orientation"),
+        ("gas_automation", "gas_automation"),
+        ("connection", "connection"),
+        ("body_shape", "body_shape"),
+        ("flue_exit", "flue_exit"),
+        ("tank_material", "tank_material"),
+        ("tank_coating", "tank_coating"),
+        ("heating_element", "heating_element"),
+    ]:
+        value = getattr(intent, attr, None)
+        if value:
+            items.append(f"• {attr}: <b>{labels[label_name].get(value, value)}</b>")
+
+    power_min = getattr(intent, "power_min_kw", None)
+    power_max = getattr(intent, "power_max_kw", None)
+    power = getattr(intent, "power_kw", None)
+
+    if power_min and power_max:
+        items.append(f"• мощность: <b>{power_min:g}-{power_max:g} кВт</b>")
+    elif power:
+        items.append(f"• мощность: <b>{power:g} кВт</b>")
+
+    volume = getattr(intent, "volume_l", None)
+    volume_min = getattr(intent, "volume_min_l", None)
+    volume_max = getattr(intent, "volume_max_l", None)
+
+    if volume_min and volume_max:
+        items.append(f"• объём: <b>{volume_min}-{volume_max} л</b>")
+    elif volume:
+        items.append(f"• объём: <b>{volume} л</b>")
+
+    circuits = getattr(intent, "circuits", None)
+    if circuits:
+        items.append(f"• контуры: <b>{circuits}</b>")
+
+    chimney = getattr(intent, "chimney_diameter_mm", None)
+    if chimney:
+        items.append(f"• дымоход: <b>{chimney} мм</b>")
+
+    recirculation = getattr(intent, "recirculation", None)
+    if recirculation:
+        items.append("• рециркуляция: <b>нужна</b>")
+
+    return items or ["• явных фильтров мало — ищу по смыслу запроса"]
+
+
+def _manager_checklist(intent) -> list[str]:
+    if getattr(intent, "category", None) == "boiler":
+        return [
+            "• проверить дымоход / камеру сгорания",
+            "• уточнить 1 или 2 контура",
+            "• сверить наличие и цену перед КП",
+        ]
+
+    if getattr(intent, "category", None) == "water_heater":
+        return [
+            "• проверить объём и монтаж",
+            "• сверить материал бака / ТЭН / рециркуляцию",
+            "• уточнить гарантию и актуальный остаток",
+        ]
+
+    return [
+        "• сверить точную модель",
+        "• проверить остаток и цену",
+        "• уточнить совместимость с объектом клиента",
+    ]
 
 
 def _format_candidate_lines(candidates, icon: str) -> list[str]:

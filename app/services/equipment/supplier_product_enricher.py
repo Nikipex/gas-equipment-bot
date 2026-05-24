@@ -11,11 +11,14 @@ class ProductFacts:
     boiler_type: str | None
     power_kw: float | None
     volume_l: int | None
+    form_factor: str | None
     circuits: int | None
     orientation: str | None
     gas_automation: str | None
     connection: str | None
     chimney_diameter_mm: int | None
+    body_shape: str | None
+    flue_exit: str | None
     is_accessory: bool
 
 
@@ -43,11 +46,14 @@ def enrich_product(name: str) -> ProductFacts:
 
     power_kw = _extract_power_kw(text)
     volume_l = _extract_volume_l(text)
+    form_factor = _extract_form_factor(text) if category == "water_heater" else None
     circuits = _extract_circuits(text) if category == "boiler" else None
     orientation = _extract_orientation(text) if category == "boiler" else None
     gas_automation = _extract_gas_automation(text) if category == "boiler" else None
     connection = _extract_connection(text) if category == "boiler" else None
     chimney_diameter_mm = _extract_chimney_diameter_mm(text) if category == "boiler" else None
+    body_shape = _extract_body_shape(text) if category == "boiler" else None
+    flue_exit = _extract_flue_exit(text) if category == "boiler" else None
 
     return ProductFacts(
         category=category,
@@ -55,11 +61,14 @@ def enrich_product(name: str) -> ProductFacts:
         boiler_type=boiler_type,
         power_kw=power_kw,
         volume_l=volume_l,
+        form_factor=form_factor,
         circuits=circuits,
         orientation=orientation,
         gas_automation=gas_automation,
         connection=connection,
         chimney_diameter_mm=chimney_diameter_mm,
+        body_shape=body_shape,
+        flue_exit=flue_exit,
         is_accessory=is_accessory,
     )
 
@@ -98,7 +107,19 @@ def _is_water_heater(text: str) -> bool:
     if _is_accessory(text):
         return False
 
-    return any(x in text for x in ["бойлер", "водонагрев", "drazice", "hajdu", "acv"])
+    return any(x in text for x in [
+        "бойлер",
+        "водонагрев",
+        "drazice",
+        "hajdu",
+        "acv",
+        "ariston",
+        "аристон",
+        "thermex",
+        "midea",
+        "edisson",
+        "garanterm",
+    ])
 
 
 def _boiler_type(text: str) -> str | None:
@@ -161,6 +182,16 @@ def _is_accessory(text: str) -> bool:
         "электродвигатель",
     ]
     return any(x in text for x in bad)
+
+
+def _extract_form_factor(text: str) -> str | None:
+    if any(x in text for x in ["плоск", "slim", "flat", "vls", "if "]):
+        return "flat"
+
+    if any(x in text for x in ["круг", "цилиндр"]):
+        return "round"
+
+    return None
 
 
 def _extract_circuits(text: str) -> int | None:
@@ -235,6 +266,28 @@ def _extract_chimney_diameter_mm(text: str) -> int | None:
         value = int(m.group(1))
         if 50 <= value <= 300:
             return value
+
+    return None
+
+
+
+def _extract_body_shape(text: str) -> str | None:
+    if any(x in text for x in ["круглый", "кругл.", "аогв", "artu", "vargaz"]):
+        return "round"
+
+    if any(x in text for x in ["прямоуголь", "ксг", "кс-г", "ксгв", "патриот", "classic", "clever", "orso"]):
+        return "rectangular"
+
+    return None
+
+
+def _extract_flue_exit(text: str) -> str | None:
+    # В напольниках "Вертик."/"Гор." — это выход дымохода, не ориентация корпуса.
+    if "(вертик" in text or "вертик." in text or "верт." in text:
+        return "vertical"
+
+    if "(гор" in text or "гор." in text or "гориз" in text:
+        return "horizontal"
 
     return None
 

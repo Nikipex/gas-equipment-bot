@@ -27,12 +27,22 @@ class EnrichedSupplierSearchService:
         df = self._filter(intent, df)
         df = self._score(intent, df)
 
+        raw_text = str(getattr(intent, "raw_text", "") or "").lower().replace("ё", "е")
+        budget_mode = any(x in raw_text for x in ["бюджет", "дешев", "подешевле", "недорог"])
+
         if "match_score" in df.columns:
-            df = df.sort_values(
-                by=["match_score", "stock", "price"],
-                ascending=[False, False, True],
-                na_position="last",
-            )
+            if budget_mode and "price" in df.columns:
+                df = df.sort_values(
+                    by=["price", "match_score", "stock"],
+                    ascending=[True, False, False],
+                    na_position="last",
+                )
+            else:
+                df = df.sort_values(
+                    by=["match_score", "stock", "price"],
+                    ascending=[False, False, True],
+                    na_position="last",
+                )
 
         return df.head(limit)
 
@@ -49,7 +59,14 @@ class EnrichedSupplierSearchService:
             if getattr(intent, "boiler_type", None) and "boiler_type" in out.columns:
                 out = out[out["boiler_type"] == intent.boiler_type]
 
-            if intent.power_kw and "power_kw" in out.columns:
+            power_min = getattr(intent, "power_min_kw", None)
+            power_max = getattr(intent, "power_max_kw", None)
+
+            if power_min and power_max and "power_kw" in out.columns:
+                out = out[out["power_kw"].notna()]
+                out = out[(out["power_kw"] >= float(power_min)) & (out["power_kw"] <= float(power_max))]
+
+            elif intent.power_kw and "power_kw" in out.columns:
                 out = out[out["power_kw"].notna()]
                 out = out[(out["power_kw"] - float(intent.power_kw)).abs() <= 1.0]
 
@@ -75,6 +92,16 @@ class EnrichedSupplierSearchService:
 
             if getattr(intent, "chimney_diameter_mm", None) and "chimney_diameter_mm" in out.columns:
                 x = out[out["chimney_diameter_mm"] == intent.chimney_diameter_mm]
+                if not x.empty:
+                    out = x
+
+            if getattr(intent, "body_shape", None) and "body_shape" in out.columns:
+                x = out[out["body_shape"] == intent.body_shape]
+                if not x.empty:
+                    out = x
+
+            if getattr(intent, "flue_exit", None) and "flue_exit" in out.columns:
+                x = out[out["flue_exit"] == intent.flue_exit]
                 if not x.empty:
                     out = x
 
@@ -137,6 +164,11 @@ class EnrichedSupplierSearchService:
                     | name.str.contains("биостекло", regex=False)
                     | name.str.contains("стеклофарфор", regex=False)
                 ]
+
+            if getattr(intent, "form_factor", None) and "form_factor" in out.columns:
+                x = out[out["form_factor"] == intent.form_factor]
+                if not x.empty:
+                    out = x
 
         return out
 

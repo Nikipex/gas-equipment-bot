@@ -27,11 +27,14 @@ def main() -> None:
                 "boiler_type": facts.boiler_type,
                 "power_kw": facts.power_kw,
                 "volume_l": facts.volume_l,
+                "form_factor": facts.form_factor,
                 "circuits": facts.circuits,
                 "orientation": facts.orientation,
                 "gas_automation": facts.gas_automation,
                 "connection": facts.connection,
                 "chimney_diameter_mm": facts.chimney_diameter_mm,
+                "body_shape": facts.body_shape,
+                "flue_exit": facts.flue_exit,
                 "is_accessory": facts.is_accessory,
             }
         )
@@ -46,7 +49,7 @@ def main() -> None:
     print("TARGET:", TARGET)
     print("ROWS:", len(out))
     print()
-    print(out[["product_name", "category", "boiler_type", "power_kw", "volume_l", "circuits", "orientation", "gas_automation", "connection", "chimney_diameter_mm", "is_accessory"]].head(30).to_string())
+    print(out[["product_name", "category", "boiler_type", "power_kw", "volume_l", "form_factor", "circuits", "orientation", "gas_automation", "connection", "chimney_diameter_mm", "body_shape", "flue_exit", "is_accessory"]].head(30).to_string())
 
 
 if __name__ == "__main__":
