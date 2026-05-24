@@ -8,3 +8,7 @@ class ProductSearch(StatesGroup):
 class MiniPrice(StatesGroup):
     """FSM-состояния для мини-прайса."""
     waiting_for_query = State()
+
+class SearchModeStates(StatesGroup):
+    waiting_supplier_site_query = State()
+    waiting_global_search_query = State()

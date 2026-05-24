@@ -167,24 +167,62 @@ class EquipmentIntentParser:
         return None
 
     def _detect_category(self, low: str) -> str:
-        if re.search(r"бойлер|водонагрев|накопительн|косвенник|косвенного", low):
+        # Бренд сам по себе НЕ определяет категорию.
+        # Категорию определяем только по типу товара или линейке модели.
+
+        # Бойлеры / водонагреватели
+        if re.search(r"\d{2,4}\s*(?:л|литр|литров)", low):
             return "water_heater"
-        if re.search(r"газов.*колонк|колонк", low):
+
+        if re.search(
+            r"бойлер|водонагрев|накопительн|литров|литр|"
+            r"pro1|pro 1|vls|abs|nts|ubc|ub|bc|"
+            r"косвен|косвенник|бкн|бак в бак|бак-в-бак|"
+            r"сухой тэн|сухой тен|мокрый тэн|dry",
+            low,
+        ):
+            return "water_heater"
+
+        # Газовые колонки / проточники
+        if re.search(
+            r"газов.*колонк|колонк|впг|проточн|"
+            r"ariston fast|ariston next|marco polo|fast evo|next evo",
+            low,
+        ):
             return "gas_column"
+
+        # Радиаторы
         if re.search(r"радиатор|биметалл|алюмин|панельн", low):
             return "radiator"
+
+        # Насосы
         if re.search(r"насос|циркуляцион|25/6|25-6", low):
             return "pump"
-        if re.search(r"котел|котёл|котлы|напольник|напольный кот", low):
+
+        # Явные котлы должны идти ДО дымоходки:
+        # "котёл с верхним выходом дымохода" — это котёл, не дымоход.
+        if re.search(r"котел|котёл|котлы|напольник|напольный кот|квт|контур|турбо|атмо", low):
             return "boiler"
 
-        if re.search(r"дымоход|коаксиал|колено|труба", low):
+        # Дымоходка
+        if re.search(
+            r"дымоход|коаксиал|коакс|колено|труба|адаптер|"
+            r"конденсатоотвод|конденсатосборник|60/100|80/125|80/80",
+            low,
+        ):
             return "chimney"
-        if re.search(r"стабилизатор|ибп|ups|напряж", low):
-            return "stabilizer"
-        if re.search(r"котел|котёл|котлы|квт|контур|турбо|атмо|настенн|напольн", low):
+
+        # Котловые линейки без слова "котёл"
+        if re.search(
+            r"luna|eco\s*life|eco\s*nova|eco\s*four|main|nuvola|"
+            r"deluxe|ace|atmo|turbo|clas|genus|alteas|cares|"
+            r"24f|24ff|fi\b",
+            low,
+        ):
             return "boiler"
+
         return "generic"
+
 
     def _detect_brand(self, low: str) -> str | None:
         brands = {
@@ -198,6 +236,13 @@ class EquipmentIntentParser:
             "ariston": "Ariston",
             "аристон": "Ariston",
             "midea": "Midea",
+            "мидеа": "Midea",
+            "drazice": "Drazice",
+            "дражице": "Drazice",
+            "дражиц": "Drazice",
+            "hajdu": "Hajdu",
+            "хайду": "Hajdu",
+            "acv": "ACV",
             "мидеа": "Midea",
             "thermex": "Thermex",
             "термекс": "Thermex",
@@ -354,19 +399,17 @@ class EquipmentIntentParser:
         return None, None
 
     def _extract_water_heater_type(self, low: str) -> str | None:
-        if "бак в баке" in low or "бак-в-баке" in low or "tank in tank" in low:
+        if "бак в бак" in low or "бак-в-бак" in low or "tank in tank" in low:
             return "tank_in_tank"
 
-        if "косвен" in low or "косвенник" in low:
+        if "косвен" in low or "косвенник" in low or "бкн" in low:
             return "indirect"
 
         if "электр" in low or "тэн" in low or "тен" in low:
             return "electric"
 
-        if "газов" in low and ("накоп" in low or "бойлер" in low):
-            return "gas_storage"
-
         return None
+
 
     def _extract_tank_material(self, low: str) -> str | None:
         if "нерж" in low or "нержав" in low or "inox" in low:

@@ -5,6 +5,8 @@ from typing import Any
 
 import pandas as pd
 
+from app.services.equipment.model_normalizer import dedupe_model_key, score_model_match
+
 from app.services.ai.equipment_intent_parser import EquipmentIntent
 
 
@@ -169,6 +171,58 @@ class EnrichedSupplierSearchService:
                 x = out[out["form_factor"] == intent.form_factor]
                 if not x.empty:
                     out = x
+
+            if getattr(intent, "water_heater_type", None):
+                name = out["product_name"].astype(str).str.lower().str.replace("ё", "е", regex=False)
+
+                if intent.water_heater_type == "indirect":
+                    x = out[
+                        name.str.contains("косвен|косвенн|бкн|drazice|драж|дражице|hajdu|хайду|acv|okc|ntr|ntrr", regex=True, na=False)
+                    ]
+                    if not x.empty:
+                        out = x
+                    else:
+                        # Не показываем электробойлеры как замену косвеннику.
+                        out = out.iloc[0:0]
+
+                elif intent.water_heater_type == "tank_in_tank":
+                    x = out[
+                        name.str.contains("бак в бак|бак-в-бак|tank", regex=True, na=False)
+                    ]
+                    if not x.empty:
+                        out = x
+
+                elif intent.water_heater_type == "electric":
+                    x = out[
+                        name.str.contains("электр|тэн|тен|thermex|ariston|midea|водонагреватель", regex=True, na=False)
+                    ]
+                    if not x.empty:
+                        out = x
+
+
+        if not out.empty and "product_name" in out.columns:
+            raw_query = getattr(intent, "raw_text", None) or getattr(intent, "query_for_supplier_search", "")
+            out = out.copy()
+            out["supplier_model_score"] = out["product_name"].map(
+                lambda name: score_model_match(raw_query, name)
+            )
+            out["supplier_dedupe_key"] = out["product_name"].map(dedupe_model_key)
+
+            sort_cols = ["supplier_model_score"]
+            ascending = [False]
+
+            if "stock" in out.columns:
+                sort_cols.append("stock")
+                ascending.append(False)
+
+            if "price" in out.columns:
+                sort_cols.append("price")
+                ascending.append(True)
+
+            out = (
+                out.sort_values(sort_cols, ascending=ascending, na_position="last")
+                .drop_duplicates("supplier_dedupe_key")
+            )
 
         return out
 

@@ -10,6 +10,8 @@ class MenuButtons:
 
     SEARCH = "🔍 Найти товар"
     SUPPLIER_STOCK = "🏬 Остатки у поставщиков"
+    SUPPLIER_SITES = "🌐 Сайты поставщиков"
+    GLOBAL_SEARCH = "🌍 Глобальный поиск"
     PRICE = "💰 Прайс"
     QUOTE = "🧾 Просчет"
 
