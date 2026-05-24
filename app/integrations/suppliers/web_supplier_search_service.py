@@ -4,6 +4,7 @@ from app.services.supplier_product_candidate_ranker import rank_supplier_candida
 
 from app.services.ai.teplocel_ranker import rank_teplocel
 
+import asyncio
 import os
 import re
 from dataclasses import dataclass
@@ -13,6 +14,13 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from loguru import logger
 from playwright.async_api import async_playwright
+
+FAST_NAV_TIMEOUT_MS = int(os.getenv('SUPPLIER_SITE_NAV_TIMEOUT_MS', '6000'))
+FAST_ACTION_TIMEOUT_MS = int(os.getenv('SUPPLIER_SITE_ACTION_TIMEOUT_MS', '2500'))
+FAST_SETTLE_TIMEOUT_MS = int(os.getenv('SUPPLIER_SITE_SETTLE_TIMEOUT_MS', '800'))
+FAST_MAX_SUPPLIERS = int(os.getenv('SUPPLIER_SITE_MAX_SUPPLIERS', '2'))
+FAST_SUPPLIER_TOTAL_TIMEOUT_SECONDS = int(os.getenv('SUPPLIER_SITE_TOTAL_TIMEOUT_SECONDS', '6'))
+SAVE_SCREENSHOTS = os.getenv('SUPPLIER_SITE_SAVE_SCREENSHOTS', '0') == '1'
 
 
 @dataclass(frozen=True)
@@ -48,19 +56,46 @@ class WebSupplierSearchService:
     ) -> list[SupplierWebsiteResult]:
         results: list[SupplierWebsiteResult] = []
 
-        for supplier in self.suppliers:
+        for supplier in self.suppliers[:FAST_MAX_SUPPLIERS]:
             try:
-                supplier_results = await self.search_supplier(
-                    supplier=supplier,
-                    query=query,
-                    limit=limit_per_supplier,
-                    headless=headless,
+                task = asyncio.create_task(
+                    self.search_supplier(
+                        supplier=supplier,
+                        query=query,
+                        limit=limit_per_supplier,
+                        headless=headless,
+                    )
                 )
+
+                done, pending = await asyncio.wait(
+                    {task},
+                    timeout=FAST_SUPPLIER_TOTAL_TIMEOUT_SECONDS,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except Exception:
+                        pass
+
+                    raise TimeoutError
+
+                supplier_results = task.result()
                 results.extend(supplier_results)
-            except Exception as exc:
-                logger.exception(
-                    "Supplier website search failed: supplier={} error={}",
+            except TimeoutError:
+                logger.warning(
+                    "Supplier website search timeout: supplier={} timeout={}s",
                     supplier.key,
+                    FAST_SUPPLIER_TOTAL_TIMEOUT_SECONDS,
+                )
+
+            except Exception as exc:
+                logger.warning(
+                    "Supplier website search failed: supplier={} error={}: {}",
+                    supplier.key,
+                    type(exc).__name__,
                     exc,
                 )
 
@@ -87,15 +122,18 @@ class WebSupplierSearchService:
             )
 
             page = context.pages[0] if context.pages else await context.new_page()
+            page.set_default_timeout(FAST_ACTION_TIMEOUT_MS)
+            page.set_default_navigation_timeout(FAST_NAV_TIMEOUT_MS)
 
             url = _ensure_url(supplier.base_url)
             logger.info("Opening supplier site: {} {}", supplier.key, url)
 
-            await page.goto(url, wait_until="domcontentloaded", timeout=90000)
-            await page.wait_for_timeout(2500)
+            await page.goto(url, wait_until="domcontentloaded", timeout=FAST_NAV_TIMEOUT_MS)
+            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
 
-            await page.screenshot(
-                path=str(snapshot_dir / "before_login.png"),
+            await _safe_screenshot(
+                page,
+                str(snapshot_dir / "before_login.png"),
                 full_page=True,
             )
 
@@ -104,14 +142,16 @@ class WebSupplierSearchService:
             else:
                 logger.info("Supplier already logged in: {}", supplier.key)
 
-            await page.screenshot(
-                path=str(snapshot_dir / "after_try_login.png"),
+            await _safe_screenshot(
+                page,
+                str(snapshot_dir / "after_try_login.png"),
                 full_page=True,
             )
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
 
-            await page.screenshot(
-                path=str(snapshot_dir / "after_login.png"),
+            await _safe_screenshot(
+                page,
+                str(snapshot_dir / "after_login.png"),
                 full_page=True,
             )
 
@@ -122,11 +162,12 @@ class WebSupplierSearchService:
 
                 try:
                     await _try_search(page, search_query)
-                    await page.wait_for_timeout(3500)
+                    await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
                     await _handle_popups(page)
 
-                    await page.screenshot(
-                        path=str(snapshot_dir / f"search_results_{idx}.png"),
+                    await _safe_screenshot(
+                        page,
+                        str(snapshot_dir / f"search_results_{idx}.png"),
                         full_page=True,
                     )
 
@@ -161,6 +202,21 @@ class WebSupplierSearchService:
 
             await context.close()
             return results
+
+
+
+async def _safe_screenshot(page, path: str, full_page: bool = True) -> None:
+    if not SAVE_SCREENSHOTS:
+        return
+
+    try:
+        await page.screenshot(
+            path=path,
+            full_page=full_page,
+            timeout=FAST_ACTION_TIMEOUT_MS,
+        )
+    except Exception as exc:
+        logger.warning("Supplier screenshot skipped: {}", exc)
 
 
 def _load_supplier_configs() -> list[SupplierWebsiteConfig]:
@@ -209,8 +265,8 @@ async def _try_login(page, supplier: SupplierWebsiteConfig) -> None:
 
         for selector in login_open_selectors:
             try:
-                await page.locator(selector).first.click(timeout=3000)
-                await page.wait_for_timeout(2000)
+                await page.locator(selector).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
+                await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
                 break
             except Exception:
                 pass
@@ -247,8 +303,8 @@ async def _try_login(page, supplier: SupplierWebsiteConfig) -> None:
 
     if supplier.key == "teplocel":
         try:
-            await page.locator('form button[type="submit"]:has-text("Войти")').first.click(timeout=5000)
-            await page.wait_for_timeout(5000)
+            await page.locator('form button[type="submit"]:has-text("Войти")').first.click(timeout=FAST_ACTION_TIMEOUT_MS)
+            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
             return
         except Exception:
             pass
@@ -262,15 +318,15 @@ async def _try_login(page, supplier: SupplierWebsiteConfig) -> None:
         'button:has-text("Login")',
     ]:
         try:
-            await page.locator(selector).first.click(timeout=3000)
-            await page.wait_for_timeout(5000)
+            await page.locator(selector).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
+            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
             return
         except Exception:
             pass
 
     try:
         await page.keyboard.press("Enter")
-        await page.wait_for_timeout(5000)
+        await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
     except Exception:
         pass
 
@@ -297,7 +353,7 @@ async def _try_search(page, query: str) -> None:
     await page.keyboard.press("Enter")
 
     try:
-        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+        await page.wait_for_load_state("domcontentloaded", timeout=FAST_NAV_TIMEOUT_MS)
     except Exception:
         pass
 
@@ -390,7 +446,7 @@ async def _first_visible(page, selectors: list[str]):
     for selector in selectors:
         try:
             loc = page.locator(selector).first
-            await loc.wait_for(state="visible", timeout=1200)
+            await loc.wait_for(state="visible", timeout=FAST_ACTION_TIMEOUT_MS)
             return loc
         except Exception:
             continue
@@ -605,16 +661,16 @@ async def _hydrate_teplocel_results(
             if ranked.score < 0.80:
                 continue
 
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(2500)
+            await page.goto(url, wait_until="domcontentloaded", timeout=FAST_NAV_TIMEOUT_MS)
+            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
 
             try:
-                await page.get_by_text("Наличие", exact=True).first.click(timeout=3000)
-                await page.wait_for_timeout(2000)
+                await page.get_by_text("Наличие", exact=True).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
+                await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
             except Exception:
                 pass
 
-            raw_text = await page.locator("body").inner_text(timeout=10000)
+            raw_text = await page.locator("body").inner_text(timeout=FAST_NAV_TIMEOUT_MS)
             page_html = await page.content()
 
             title = _extract_teplocel_product_title(raw_text) or item.title
@@ -891,8 +947,8 @@ async def _handle_popups(page) -> None:
             if "teplocel" in body_url and text != "Верно":
                 continue
 
-            await page.get_by_text(text, exact=True).first.click(timeout=1500)
-            await page.wait_for_timeout(700)
+            await page.get_by_text(text, exact=True).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
+            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
         except Exception:
             pass
 
@@ -947,7 +1003,7 @@ def _build_supplier_query_variants(query: str) -> list[str]:
 
 async def _looks_logged_in(page, supplier: SupplierWebsiteConfig) -> bool:
     try:
-        text = (await page.locator("body").inner_text(timeout=5000)).lower().replace("ё", "е")
+        text = (await page.locator("body").inner_text(timeout=FAST_ACTION_TIMEOUT_MS)).lower().replace("ё", "е")
     except Exception:
         return False
 
@@ -967,8 +1023,8 @@ async def _teplocel_prepare_page(page) -> None:
     # На Теплоцели клик по cookies уводит на legacy-cookies-agreement.php.
     # Единственное, что можно нажимать безопасно — город "Верно".
     try:
-        await page.get_by_text("Верно", exact=True).first.click(timeout=2500)
-        await page.wait_for_timeout(1000)
+        await page.get_by_text("Верно", exact=True).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
+        await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
     except Exception:
         pass
 
@@ -977,7 +1033,7 @@ async def _teplocel_open_login(page) -> None:
     await page.goto(
         "https://teplocel.ru/auth/",
         wait_until="domcontentloaded",
-        timeout=60000,
+        timeout=FAST_NAV_TIMEOUT_MS,
     )
-    await page.wait_for_timeout(2500)
+    await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
 

@@ -1,5 +1,3 @@
-2026/05/24-15:47:43.466 1bd1a Creating DB /opt/projects/gas-equipment-bot/data/browser_sessions/teplocel/Default/Local Storage/leveldb since it was missing.
-2026/05/24-15:47:43.526 1bd1a Reusing MANIFEST /opt/projects/gas-equipment-bot/data/browser_sessions/teplocel/Default/Local Storage/leveldb/MANIFEST-000001
-2026/05/24-15:48:43.530 1bd1a Level-0 table #5: started
-2026/05/24-15:48:43.540 1bd1a Level-0 table #5: 39791 bytes OK
-2026/05/24-15:48:43.544 1bd1a Delete type=0 #3
+2026/05/24-17:43:00.471 1c1f1 Reusing MANIFEST /opt/projects/gas-equipment-bot/data/browser_sessions/teplocel/Default/Local Storage/leveldb/MANIFEST-000001
+2026/05/24-17:43:00.517 1c1f1 Recovering log #4
+2026/05/24-17:43:00.517 1c1f1 Reusing old log /opt/projects/gas-equipment-bot/data/browser_sessions/teplocel/Default/Local Storage/leveldb/000004.log 

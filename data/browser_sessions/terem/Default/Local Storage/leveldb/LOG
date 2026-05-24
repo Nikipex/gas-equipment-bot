@@ -1,2 +1,3 @@
-2026/05/24-15:48:46.139 1bd6d Creating DB /opt/projects/gas-equipment-bot/data/browser_sessions/terem/Default/Local Storage/leveldb since it was missing.
-2026/05/24-15:48:46.198 1bd6d Reusing MANIFEST /opt/projects/gas-equipment-bot/data/browser_sessions/terem/Default/Local Storage/leveldb/MANIFEST-000001
+2026/05/24-17:43:06.443 1c23c Reusing MANIFEST /opt/projects/gas-equipment-bot/data/browser_sessions/terem/Default/Local Storage/leveldb/MANIFEST-000001
+2026/05/24-17:43:06.481 1c23c Recovering log #3
+2026/05/24-17:43:06.481 1c23c Reusing old log /opt/projects/gas-equipment-bot/data/browser_sessions/terem/Default/Local Storage/leveldb/000003.log 

@@ -1,2 +1,3 @@
-2026/05/24-15:48:46.199 1bd6e Creating DB /opt/projects/gas-equipment-bot/data/browser_sessions/terem/Default/shared_proto_db since it was missing.
-2026/05/24-15:48:46.209 1bd6e Reusing MANIFEST /opt/projects/gas-equipment-bot/data/browser_sessions/terem/Default/shared_proto_db/MANIFEST-000001
+2026/05/24-17:43:06.482 1c23d Reusing MANIFEST /opt/projects/gas-equipment-bot/data/browser_sessions/terem/Default/shared_proto_db/MANIFEST-000001
+2026/05/24-17:43:06.482 1c23d Recovering log #3
+2026/05/24-17:43:06.482 1c23d Reusing old log /opt/projects/gas-equipment-bot/data/browser_sessions/terem/Default/shared_proto_db/000003.log 
