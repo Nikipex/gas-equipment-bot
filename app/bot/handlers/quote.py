@@ -65,29 +65,79 @@ async def process_quote_round(callback: CallbackQuery) -> None:
     step = int(callback.data.split(":")[1])
     await callback.message.answer(
         build_quote_text(text, round_step=step),
-        reply_markup=_round_keyboard("quote_round"),
+        reply_markup=_quote_keyboard(),
     )
     await callback.answer(f"Округлил до {step}")
+
+
+@router.callback_query(F.data.startswith("quote_markup_percent:"))
+async def process_quote_markup_percent(callback: CallbackQuery) -> None:
+    user_id = callback.from_user.id
+    text = _last_quote_requests.get(user_id)
+
+    if not text:
+        await callback.answer("Нет последнего просчета", show_alert=True)
+        return
+
+    percent = float(callback.data.split(":")[1])
+    await callback.message.answer(
+        build_quote_text(text, markup_percent=percent),
+        reply_markup=_quote_keyboard(),
+    )
+    await callback.answer(f"Добавил +{percent:g}%")
+
+
+@router.callback_query(F.data.startswith("quote_markup_amount:"))
+async def process_quote_markup_amount(callback: CallbackQuery) -> None:
+    user_id = callback.from_user.id
+    text = _last_quote_requests.get(user_id)
+
+    if not text:
+        await callback.answer("Нет последнего просчета", show_alert=True)
+        return
+
+    amount = float(callback.data.split(":")[1])
+    await callback.message.answer(
+        build_quote_text(text, markup_amount=amount),
+        reply_markup=_quote_keyboard(),
+    )
+    await callback.answer(f"Добавил +{amount:g} ₽")
 
 
 async def _send_quote(message: Message, text: str) -> None:
     _last_quote_requests[message.from_user.id] = text
     await message.answer(
         build_quote_text(text),
-        reply_markup=_round_keyboard("quote_round"),
+        reply_markup=_quote_keyboard(),
     )
 
 
-def build_quote_text(text: str, round_step: int | None = None) -> str:
-    lines = _quote_service.calculate(text, round_step=round_step)
+def build_quote_text(
+    text: str,
+    round_step: int | None = None,
+    markup_percent: float | None = None,
+    markup_amount: float | None = None,
+) -> str:
+    lines = _quote_service.calculate(
+        text,
+        round_step=round_step,
+        markup_percent=markup_percent,
+        markup_amount=markup_amount,
+    )
 
     if not lines:
         return "❌ Не смог разобрать позиции для просчёта."
 
     response = ["🧾 <b>Просчёт заявки</b>"]
 
+    if markup_percent is not None:
+        response.append(f"📈 Наценка: +{markup_percent:g}%")
+
+    if markup_amount is not None:
+        response.append(f"➕ Наценка: +{_format_price(markup_amount)} / шт")
+
     if round_step:
-        response.append(f"🔢 Округление закупки: до {round_step}")
+        response.append(f"🔢 Округление: до {round_step}")
 
     response.append("")
     total = 0.0
@@ -109,10 +159,12 @@ def build_quote_text(text: str, round_step: int | None = None) -> str:
         line_total = line.line_total or 0
         total += line_total
 
+        price_label = "Прайс" if getattr(line.item, "excel_client_price", None) else "Закупка"
+
         response.append(
             f"{index}. <b>{html.escape(line.item.product_name)}</b>\n"
             f"Кол-во: {line.qty:g} шт\n"
-            f"Закупка: {_format_price(purchase)}\n"
+            f"{price_label}: {_format_price(purchase)}\n"
             f"Сумма: {_format_price(line_total)}"
         )
 
@@ -122,13 +174,21 @@ def build_quote_text(text: str, round_step: int | None = None) -> str:
     return "\n\n".join(response)
 
 
-def _round_keyboard(prefix: str) -> InlineKeyboardMarkup:
+def _quote_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔢 До 10", callback_data=f"{prefix}:10"),
-                InlineKeyboardButton(text="🔢 До 100", callback_data=f"{prefix}:100"),
-            ]
+                InlineKeyboardButton(text="📈 +10%", callback_data="quote_markup_percent:10"),
+                InlineKeyboardButton(text="📈 +15%", callback_data="quote_markup_percent:15"),
+            ],
+            [
+                InlineKeyboardButton(text="➕ +1000 ₽", callback_data="quote_markup_amount:1000"),
+                InlineKeyboardButton(text="➕ +2000 ₽", callback_data="quote_markup_amount:2000"),
+            ],
+            [
+                InlineKeyboardButton(text="🔢 До 10", callback_data="quote_round:10"),
+                InlineKeyboardButton(text="🔢 До 100", callback_data="quote_round:100"),
+            ],
         ]
     )
 

@@ -20,7 +20,7 @@ class PriceListRequest:
     markup_percent: float | None = None
     markup_amount: float | None = None
     show_stock: bool = True
-    show_purchase: bool = True
+    show_purchase: bool = False
     round_step: int | None = None
 
 
@@ -53,7 +53,7 @@ class PriceListService:
         clean = re.sub(r"^(прайс|price)\s+", "", clean).strip()
 
         show_stock = True
-        show_purchase = True
+        show_purchase = False
 
         if "клиентский" in clean or "для клиента" in clean:
             show_stock = False
@@ -61,6 +61,9 @@ class PriceListService:
 
         if "без остатков" in clean or "без остатка" in clean:
             show_stock = False
+
+        if "с закупкой" in clean or "показать закупку" in clean or "с закуп" in clean:
+            show_purchase = True
 
         if "без закупки" in clean or "без закуп" in clean:
             show_purchase = False
@@ -71,7 +74,7 @@ class PriceListService:
             round_step = int(round_match.group(1))
 
         clean = re.sub(
-            r"клиентский|для клиента|без остатков|без остатка|без закупки|без закуп|округл(?:ение|ить)?\s*(?:10|100)",
+            r"клиентский|для клиента|без остатков|без остатка|без закупки|без закуп|с закупкой|показать закупку|с закуп|округл(?:ение|ить)?\s*(?:10|100)",
             " ",
             clean,
         )

@@ -4,7 +4,6 @@ from app.services.supplier_product_candidate_ranker import rank_supplier_candida
 
 from app.services.ai.teplocel_ranker import rank_teplocel
 
-import asyncio
 import os
 import re
 from dataclasses import dataclass
@@ -14,13 +13,6 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from loguru import logger
 from playwright.async_api import async_playwright
-
-FAST_NAV_TIMEOUT_MS = int(os.getenv('SUPPLIER_SITE_NAV_TIMEOUT_MS', '6000'))
-FAST_ACTION_TIMEOUT_MS = int(os.getenv('SUPPLIER_SITE_ACTION_TIMEOUT_MS', '2500'))
-FAST_SETTLE_TIMEOUT_MS = int(os.getenv('SUPPLIER_SITE_SETTLE_TIMEOUT_MS', '800'))
-FAST_MAX_SUPPLIERS = int(os.getenv('SUPPLIER_SITE_MAX_SUPPLIERS', '2'))
-FAST_SUPPLIER_TOTAL_TIMEOUT_SECONDS = int(os.getenv('SUPPLIER_SITE_TOTAL_TIMEOUT_SECONDS', '6'))
-SAVE_SCREENSHOTS = os.getenv('SUPPLIER_SITE_SAVE_SCREENSHOTS', '0') == '1'
 
 
 @dataclass(frozen=True)
@@ -56,46 +48,19 @@ class WebSupplierSearchService:
     ) -> list[SupplierWebsiteResult]:
         results: list[SupplierWebsiteResult] = []
 
-        for supplier in self.suppliers[:FAST_MAX_SUPPLIERS]:
+        for supplier in self.suppliers:
             try:
-                task = asyncio.create_task(
-                    self.search_supplier(
-                        supplier=supplier,
-                        query=query,
-                        limit=limit_per_supplier,
-                        headless=headless,
-                    )
+                supplier_results = await self.search_supplier(
+                    supplier=supplier,
+                    query=query,
+                    limit=limit_per_supplier,
+                    headless=headless,
                 )
-
-                done, pending = await asyncio.wait(
-                    {task},
-                    timeout=FAST_SUPPLIER_TOTAL_TIMEOUT_SECONDS,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                if pending:
-                    task.cancel()
-                    try:
-                        await task
-                    except Exception:
-                        pass
-
-                    raise TimeoutError
-
-                supplier_results = task.result()
                 results.extend(supplier_results)
-            except TimeoutError:
-                logger.warning(
-                    "Supplier website search timeout: supplier={} timeout={}s",
-                    supplier.key,
-                    FAST_SUPPLIER_TOTAL_TIMEOUT_SECONDS,
-                )
-
             except Exception as exc:
-                logger.warning(
-                    "Supplier website search failed: supplier={} error={}: {}",
+                logger.exception(
+                    "Supplier website search failed: supplier={} error={}",
                     supplier.key,
-                    type(exc).__name__,
                     exc,
                 )
 
@@ -122,18 +87,15 @@ class WebSupplierSearchService:
             )
 
             page = context.pages[0] if context.pages else await context.new_page()
-            page.set_default_timeout(FAST_ACTION_TIMEOUT_MS)
-            page.set_default_navigation_timeout(FAST_NAV_TIMEOUT_MS)
 
             url = _ensure_url(supplier.base_url)
             logger.info("Opening supplier site: {} {}", supplier.key, url)
 
-            await page.goto(url, wait_until="domcontentloaded", timeout=FAST_NAV_TIMEOUT_MS)
-            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+            await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            await page.wait_for_timeout(2500)
 
-            await _safe_screenshot(
-                page,
-                str(snapshot_dir / "before_login.png"),
+            await page.screenshot(
+                path=str(snapshot_dir / "before_login.png"),
                 full_page=True,
             )
 
@@ -142,16 +104,14 @@ class WebSupplierSearchService:
             else:
                 logger.info("Supplier already logged in: {}", supplier.key)
 
-            await _safe_screenshot(
-                page,
-                str(snapshot_dir / "after_try_login.png"),
+            await page.screenshot(
+                path=str(snapshot_dir / "after_try_login.png"),
                 full_page=True,
             )
-            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+            await page.wait_for_timeout(2000)
 
-            await _safe_screenshot(
-                page,
-                str(snapshot_dir / "after_login.png"),
+            await page.screenshot(
+                path=str(snapshot_dir / "after_login.png"),
                 full_page=True,
             )
 
@@ -162,12 +122,11 @@ class WebSupplierSearchService:
 
                 try:
                     await _try_search(page, search_query)
-                    await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+                    await page.wait_for_timeout(3500)
                     await _handle_popups(page)
 
-                    await _safe_screenshot(
-                        page,
-                        str(snapshot_dir / f"search_results_{idx}.png"),
+                    await page.screenshot(
+                        path=str(snapshot_dir / f"search_results_{idx}.png"),
                         full_page=True,
                     )
 
@@ -202,21 +161,6 @@ class WebSupplierSearchService:
 
             await context.close()
             return results
-
-
-
-async def _safe_screenshot(page, path: str, full_page: bool = True) -> None:
-    if not SAVE_SCREENSHOTS:
-        return
-
-    try:
-        await page.screenshot(
-            path=path,
-            full_page=full_page,
-            timeout=FAST_ACTION_TIMEOUT_MS,
-        )
-    except Exception as exc:
-        logger.warning("Supplier screenshot skipped: {}", exc)
 
 
 def _load_supplier_configs() -> list[SupplierWebsiteConfig]:
@@ -265,8 +209,8 @@ async def _try_login(page, supplier: SupplierWebsiteConfig) -> None:
 
         for selector in login_open_selectors:
             try:
-                await page.locator(selector).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
-                await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+                await page.locator(selector).first.click(timeout=3000)
+                await page.wait_for_timeout(2000)
                 break
             except Exception:
                 pass
@@ -303,8 +247,8 @@ async def _try_login(page, supplier: SupplierWebsiteConfig) -> None:
 
     if supplier.key == "teplocel":
         try:
-            await page.locator('form button[type="submit"]:has-text("Войти")').first.click(timeout=FAST_ACTION_TIMEOUT_MS)
-            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+            await page.locator('form button[type="submit"]:has-text("Войти")').first.click(timeout=5000)
+            await page.wait_for_timeout(5000)
             return
         except Exception:
             pass
@@ -318,15 +262,15 @@ async def _try_login(page, supplier: SupplierWebsiteConfig) -> None:
         'button:has-text("Login")',
     ]:
         try:
-            await page.locator(selector).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
-            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+            await page.locator(selector).first.click(timeout=3000)
+            await page.wait_for_timeout(5000)
             return
         except Exception:
             pass
 
     try:
         await page.keyboard.press("Enter")
-        await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+        await page.wait_for_timeout(5000)
     except Exception:
         pass
 
@@ -353,7 +297,7 @@ async def _try_search(page, query: str) -> None:
     await page.keyboard.press("Enter")
 
     try:
-        await page.wait_for_load_state("domcontentloaded", timeout=FAST_NAV_TIMEOUT_MS)
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
     except Exception:
         pass
 
@@ -446,7 +390,7 @@ async def _first_visible(page, selectors: list[str]):
     for selector in selectors:
         try:
             loc = page.locator(selector).first
-            await loc.wait_for(state="visible", timeout=FAST_ACTION_TIMEOUT_MS)
+            await loc.wait_for(state="visible", timeout=1200)
             return loc
         except Exception:
             continue
@@ -577,36 +521,37 @@ async def _collect_teplocel_search_results(
     results: list[SupplierWebsiteResult] = []
     seen: set[str] = set()
 
-    links = await page.locator("a").all()
+    cards = await page.locator(".sitem.catitem").all()
 
-    for link in links:
+    for card in cards:
         if len(results) >= limit:
             break
 
         try:
-            title = (await link.inner_text(timeout=300)).strip()
-            href = await link.get_attribute("href")
+            title = (await card.locator("a.nm").first.inner_text(timeout=700)).strip()
+            href = await card.locator("a.nm").first.get_attribute("href", timeout=700)
         except Exception:
             continue
 
-        if not href:
+        if not title or not href or "/products/" not in href:
             continue
 
-        if "/products/" not in href:
-            continue
+        desc = ""
+        chain = ""
 
-        combo = _norm(f"{title} {href}")
+        try:
+            desc = (await card.locator(".description").first.inner_text(timeout=500)).strip()
+        except Exception:
+            pass
 
-        if not title:
-            title = href.rsplit("/", 2)[-2].replace("-", " ")
+        try:
+            chain = (await card.locator(".chain").first.inner_text(timeout=500)).strip()
+        except Exception:
+            pass
 
-        ranked = rank_supplier_candidate(
-            query=query,
-            title=title,
-            href=href,
-        )
+        combo = f"{title} {desc} {chain} {href}"
 
-        if ranked.score < 0.72:
+        if not _teplocel_card_matches_query(query, combo):
             continue
 
         key = href
@@ -623,11 +568,74 @@ async def _collect_teplocel_search_results(
                 price=None,
                 stock=None,
                 url=href,
-                raw_text=f"{title}\nmatch_score={ranked.score}\nmatch_reason={ranked.reason}",
+                raw_text=combo,
             )
         )
 
     return results
+
+
+def _teplocel_card_matches_query(query: str, combo: str) -> bool:
+    q = _norm(query)
+    t = _norm(combo)
+
+    bad_parts = [
+        "запчаст",
+        "вентилятор",
+        "плата",
+        "бак расширительный",
+        "расширительный",
+        "датчик",
+        "насос",
+        "mvl",
+        "ro/rus",
+    ]
+
+    if any(x in t for x in bad_parts):
+        return False
+
+    is_boiler_query = any(x in q for x in ["котел", "котёл", "baxi", "бакси", "luna", "eco"])
+    if is_boiler_query:
+        if not any(x in t for x in ["котел", "котёл", "газовый котел", "настенный"]):
+            return False
+
+    q_tokens = _model_tokens(q)
+    t_tokens = _model_tokens(t)
+
+    # Для запроса Luna-3 1.310 Fi:
+    # обязательные токены должны сохранять Comfort как валидный вариант,
+    # но отрезать 310Fi без 1.310, если в запросе было 1.310.
+    if "luna" in q_tokens and "luna" not in t_tokens:
+        return False
+
+    if "fi" in q_tokens and "fi" not in t_tokens:
+        return False
+
+    if "1.310" in q_tokens and "1.310" not in t_tokens:
+        return False
+
+    # ВАЖНО: 24F и 1.24F — разные котлы.
+    wants_24f = bool(re.search(r"\b24\s*f\b|\b24f\b", q))
+    wants_124f = bool(re.search(r"\b1[\s\.-]*24\s*f\b|\b1[\s\.-]*24f\b", q))
+
+    if wants_24f and not wants_124f:
+        if re.search(r"\b1[\s\.-]*24\s*f\b|\b1[\s\.-]*24f\b", t):
+            return False
+        if not re.search(r"\b24\s*f\b|\b24f\b", t):
+            return False
+
+    if wants_124f:
+        if not re.search(r"\b1[\s\.-]*24\s*f\b|\b1[\s\.-]*24f\b", t):
+            return False
+
+    if "24f" in q_tokens and "24f" not in t_tokens:
+        return False
+
+    matched = sum(1 for token in q_tokens if token in t_tokens)
+    if not q_tokens:
+        return True
+
+    return matched / len(q_tokens) >= 0.55
 
 
 async def _hydrate_teplocel_results(
@@ -648,33 +656,16 @@ async def _hydrate_teplocel_results(
             url = "https://teplocel.ru" + url
 
         try:
-            # Жестко отсекаем 1.24F до перехода в карточку
-            if not _matches_supplier_query(query, f"{item.title} {url}"):
-                continue
+            logger.info("TEPLOCEL HYDRATE START: {}", item.title)
 
-            ranked = rank_supplier_candidate(
-                query=query,
-                title=item.title,
-                href=url,
-            )
+            await page.goto(url, wait_until="domcontentloaded", timeout=10000)
+            await page.wait_for_timeout(700)
 
-            if ranked.score < 0.80:
-                continue
-
-            await page.goto(url, wait_until="domcontentloaded", timeout=FAST_NAV_TIMEOUT_MS)
-            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
-
-            try:
-                await page.get_by_text("Наличие", exact=True).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
-                await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
-            except Exception:
-                pass
-
-            raw_text = await page.locator("body").inner_text(timeout=FAST_NAV_TIMEOUT_MS)
+            raw_text = await page.locator("body").inner_text(timeout=3000)
             page_html = await page.content()
 
             title = _extract_teplocel_product_title(raw_text) or item.title
-            price = _extract_teplocel_product_price(raw_text) or item.price
+            price = _extract_teplocel_lk_price(page_html) or _extract_teplocel_price_from_html(page_html) or _extract_teplocel_product_price(raw_text) or item.price
             stock = _extract_teplocel_warehouse_stock(page_html)
 
             if not stock:
@@ -683,18 +674,9 @@ async def _hydrate_teplocel_results(
             if not stock:
                 stock = _extract_teplocel_product_stock(raw_text) or item.stock
 
-            # Повторная проверка уже по финальному title/url
-            if not _matches_supplier_query(query, f"{title} {url}"):
-                continue
+            # Card was already filtered on search page; hydrate is only for price/stock.
 
-            final_rank = rank_supplier_candidate(
-                query=query,
-                title=title,
-                href=url,
-            )
-
-            if final_rank.score < 0.80:
-                continue
+            logger.info("TEPLOCEL HYDRATE OK: {} price={} stock={}", title, price, stock)
 
             hydrated.append(
                 SupplierWebsiteResult(
@@ -712,6 +694,73 @@ async def _hydrate_teplocel_results(
             logger.warning("Teplocel hydrate failed: {} {}", item.url, exc)
 
     return hydrated
+
+
+def _extract_teplocel_lk_price(page_html: str) -> str | None:
+    """Extract Teplocel LK/OPT price from product card HTML.
+
+    Real structure:
+    <span class="c-prices__price js-prices__price-code_OPT" data-pricecode="OPT">
+        <span class="c-prices__value js-prices_pdv_OPT">33 184,71 руб.</span>
+    </span>
+    """
+    import html as html_lib
+
+    # 1) Direct class match: most reliable for Teplocel LK price.
+    match = re.search(
+        r'<span[^>]*class="[^"]*js-prices_pdv_OPT[^"]*"[^>]*>\s*([^<]+?)\s*</span>',
+        page_html,
+        flags=re.I | re.S,
+    )
+    if match:
+        value = html_lib.unescape(match.group(1)).strip()
+        value = " ".join(value.split())
+        if value:
+            return value
+
+    # 2) Fallback: isolate OPT price block first.
+    block_match = re.search(
+        r'<span[^>]*(?:data-pricecode="OPT"|class="[^"]*js-prices__price-code_OPT[^"]*")[^>]*>.*?</span>\s*</span>',
+        page_html,
+        flags=re.I | re.S,
+    )
+    if block_match:
+        block = block_match.group(0)
+        value_match = re.search(
+            r'<span[^>]*class="[^"]*c-prices__value[^"]*"[^>]*>\s*([^<]+?)\s*</span>',
+            block,
+            flags=re.I | re.S,
+        )
+        if value_match:
+            value = html_lib.unescape(value_match.group(1)).strip()
+            value = " ".join(value.split())
+            if value:
+                return value
+
+    return None
+
+
+def _extract_teplocel_price_from_html(page_html: str) -> str | None:
+    import html as html_lib
+
+    patterns = [
+        r'class="[^"]*js-prices_pdv_OPT[^"]*"[^>]*>\s*([^<]+?)\s*</span>',
+        r'class="[^"]*c-prices__value[^"]*"[^>]*>\s*([^<]+?)\s*</span>',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, page_html, flags=re.I | re.S)
+        if not match:
+            continue
+
+        value = html_lib.unescape(match.group(1)).strip()
+        value = " ".join(value.split())
+
+        if value:
+            return value
+
+    return None
+
 
 
 def _extract_teplocel_product_title(raw_text: str) -> str | None:
@@ -888,10 +937,22 @@ def _matches_supplier_query(query: str, raw_text: str) -> bool:
     query_clean = _norm(query)
     text = _norm(raw_text)
 
-    # Если ищем 24F / 24 F, не пропускаем 1.24F.
-    wants_24f = bool(
-        re.search(r"\b24\s*f\b|\b24f\b", query_clean)
-    )
+    # Режем не модели, а типовой мусор: запчасти/комплектующие не должны проходить как котлы.
+    bad_parts = [
+        "запчаст",
+        "вентилятор",
+        "mvl",
+        "плата",
+        "датчик",
+        "насос",
+        "термостат",
+    ]
+
+    if any(x in text for x in bad_parts):
+        return False
+
+    # Старое важное правило: 24F и 1.24F — разные сущности.
+    wants_24f = bool(re.search(r"\b24\s*f\b|\b24f\b", query_clean))
 
     if wants_24f:
         if re.search(r"\b1\.24\s*f\b|\b1\.24f\b", text):
@@ -900,16 +961,81 @@ def _matches_supplier_query(query: str, raw_text: str) -> bool:
         if not re.search(r"\b24\s*f\b|\b24f\b", text):
             return False
 
-    # Если ищем 1.24F, наоборот не пропускаем обычный 24F.
-    wants_124f = bool(
-        re.search(r"\b1\.24\s*f\b|\b1\.24f\b", query_clean)
-    )
+    wants_124f = bool(re.search(r"\b1\.24\s*f\b|\b1\.24f\b", query_clean))
 
     if wants_124f:
         if not re.search(r"\b1\.24\s*f\b|\b1\.24f\b", text):
             return False
 
-    return True
+    # Универсальный скоринг по токенам модели.
+    query_tokens = _model_tokens(query_clean)
+    text_tokens = _model_tokens(text)
+
+    if not query_tokens:
+        return True
+
+    matched = sum(1 for token in query_tokens if token in text_tokens)
+
+    # Для коротких запросов требуем почти полное совпадение.
+    if len(query_tokens) <= 3:
+        return matched >= max(1, len(query_tokens) - 1)
+
+    # Для длинных запросов достаточно ~70%, чтобы не убивать Comfort/варианты комплектации.
+    return matched / len(query_tokens) >= 0.7
+
+
+def _model_tokens(value: str) -> set[str]:
+    value = value.lower().replace("ё", "е")
+    value = value.replace("-", " ")
+    value = value.replace("/", " ")
+
+    raw_tokens = re.findall(r"[a-zа-я]+|\d+(?:\.\d+)?", value)
+
+    stop = {
+        "котел",
+        "котёл",
+        "газовый",
+        "настенный",
+        "напольный",
+        "турбо",
+        "турбированный",
+        "одноконтурный",
+        "двухконтурный",
+        "с",
+        "без",
+        "комплектом",
+        "комплекта",
+        "приводом",
+        "датчиком",
+        "температуры",
+        "бойлера",
+    }
+
+    tokens: set[str] = set()
+
+    for token in raw_tokens:
+        if len(token) < 2:
+            continue
+
+        if token in stop:
+            continue
+
+        tokens.add(token)
+
+        # 1.310 должно также матчиться с 310, но не наоборот как единственный критерий.
+        if re.fullmatch(r"\d+\.\d+", token):
+            tokens.add(token.split(".")[-1])
+
+    # Склейки типа 310fi / 24f
+    compact = re.sub(r"[^a-zа-я0-9]", "", value)
+    for token in re.findall(r"\d+[a-z]+", compact):
+        tokens.add(token)
+
+    # Форматы типа "24 F" / "24-F" / "24.F" тоже считаем как "24f"
+    for num, letter in re.findall(r"\b(\d+)\s*([a-z])\b", value):
+        tokens.add(f"{num}{letter}")
+
+    return tokens
 
 def _ensure_url(value: str) -> str:
     if value.startswith("http://") or value.startswith("https://"):
@@ -947,13 +1073,49 @@ async def _handle_popups(page) -> None:
             if "teplocel" in body_url and text != "Верно":
                 continue
 
-            await page.get_by_text(text, exact=True).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
-            await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+            await page.get_by_text(text, exact=True).first.click(timeout=1500)
+            await page.wait_for_timeout(700)
         except Exception:
             pass
 
 
+def _teplocel_prepare_query(query: str) -> str | None:
+    q = str(query or "").strip()
+    low = q.lower().replace("ё", "е")
+
+    # ТеплоЦель не продаёт Navien/Drazice — не тратим 20-40 сек на пустой поиск.
+    blocked = [
+        "navien",
+        "навьен",
+        "drazice",
+        "dražice",
+        "дражице",
+    ]
+
+    if any(x in low for x in blocked):
+        return None
+
+    # На ТеплоЦели слово Ariston в поиске часто убивает выдачу.
+    # Ищем по модели.
+    ariston_words = [
+        "ariston",
+        "аристон",
+    ]
+
+    for word in ariston_words:
+        q = q.replace(word, "")
+        q = q.replace(word.upper(), "")
+        q = q.replace(word.capitalize(), "")
+
+    q = " ".join(q.split())
+    return q or query
+
+
 def _build_supplier_query_variants(query: str) -> list[str]:
+    prepared = _teplocel_prepare_query(query)
+    if prepared is None:
+        return []
+    query = prepared
     raw = str(query or "").strip()
     clean = raw.lower().replace("ё", "е")
 
@@ -1003,7 +1165,7 @@ def _build_supplier_query_variants(query: str) -> list[str]:
 
 async def _looks_logged_in(page, supplier: SupplierWebsiteConfig) -> bool:
     try:
-        text = (await page.locator("body").inner_text(timeout=FAST_ACTION_TIMEOUT_MS)).lower().replace("ё", "е")
+        text = (await page.locator("body").inner_text(timeout=5000)).lower().replace("ё", "е")
     except Exception:
         return False
 
@@ -1023,8 +1185,8 @@ async def _teplocel_prepare_page(page) -> None:
     # На Теплоцели клик по cookies уводит на legacy-cookies-agreement.php.
     # Единственное, что можно нажимать безопасно — город "Верно".
     try:
-        await page.get_by_text("Верно", exact=True).first.click(timeout=FAST_ACTION_TIMEOUT_MS)
-        await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+        await page.get_by_text("Верно", exact=True).first.click(timeout=2500)
+        await page.wait_for_timeout(1000)
     except Exception:
         pass
 
@@ -1033,7 +1195,7 @@ async def _teplocel_open_login(page) -> None:
     await page.goto(
         "https://teplocel.ru/auth/",
         wait_until="domcontentloaded",
-        timeout=FAST_NAV_TIMEOUT_MS,
+        timeout=60000,
     )
-    await page.wait_for_timeout(FAST_SETTLE_TIMEOUT_MS)
+    await page.wait_for_timeout(2500)
 

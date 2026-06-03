@@ -7,16 +7,19 @@ from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from app.bot.keyboards.main_menu import MainMenuButtons, main_menu_kb
+from app.bot.keyboards.main_menu import MenuButtons, main_menu_kb
 from app.bot.states.search_states import SearchModeStates
+from app.bot.handlers.supplier_sites import run_supplier_sites_search
 from app.integrations.suppliers.web_supplier_search_service import WebSupplierSearchService
+from app.services.global_product_search_service import GlobalProductSearchService
+from app.services.ai.yandex_gpt_service import YandexGPTService
 
 router = Router()
 
 SUPPLIER_SITE_TIMEOUT_SECONDS = 15
 
 
-@router.message(lambda message: message.text == MainMenuButtons.SUPPLIER_SITES)
+@router.message(lambda message: message.text == MenuButtons.SUPPLIER_SITES)
 async def ask_supplier_site_search(message: Message, state: FSMContext) -> None:
     await state.set_state(SearchModeStates.waiting_supplier_site_query)
 
@@ -30,7 +33,7 @@ async def ask_supplier_site_search(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(lambda message: message.text == MainMenuButtons.GLOBAL_SEARCH)
+@router.message(lambda message: message.text == MenuButtons.GLOBAL_SEARCH)
 async def ask_global_search(message: Message, state: FSMContext) -> None:
     await state.set_state(SearchModeStates.waiting_global_search_query)
 
@@ -54,47 +57,7 @@ async def process_supplier_site_query(
         await message.answer("❌ Пустой запрос.", reply_markup=main_menu_kb)
         return
 
-    await message.answer(
-        f"🌐 Ищу на сайтах поставщиков:\n<code>{html.escape(query)}</code>",
-        reply_markup=main_menu_kb,
-    )
-
-    try:
-        service = WebSupplierSearchService()
-
-        results = await service.search_all(
-            query=query,
-            limit_per_supplier=3,
-            headless=True,
-        )
-
-    except asyncio.TimeoutError:
-        await message.answer(
-            "⏱ Поиск по сайтам поставщиков не уложился в быстрый таймаут.\n"
-            "Попробуй уточнить модель или использовать поиск по Excel-прайсам.",
-            reply_markup=main_menu_kb,
-        )
-        return
-
-    except Exception as exc:
-        await message.answer(
-            "❌ Ошибка поиска по сайтам поставщиков:\n"
-            f"<code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))}</code>",
-            reply_markup=main_menu_kb,
-        )
-        return
-
-    if not results:
-        await message.answer(
-            "❌ На сайтах поставщиков ничего не найдено.",
-            reply_markup=main_menu_kb,
-        )
-        return
-
-    await message.answer(
-        _build_supplier_sites_response(query, results)[:3900],
-        reply_markup=main_menu_kb,
-    )
+    await run_supplier_sites_search(message, query)
 
 
 @router.message(SearchModeStates.waiting_global_search_query)
@@ -109,13 +72,40 @@ async def process_global_search_query(
         await message.answer("❌ Пустой запрос.", reply_markup=main_menu_kb)
         return
 
+    service = GlobalProductSearchService()
+    results = service.search(query)
+
+    ai_summary = None
+    try:
+        ai_summary = YandexGPTService().summarize_product_global_search(query)
+    except Exception as exc:
+        ai_summary = f"AI-сводка временно недоступна: {type(exc).__name__}"
+
+    if not results:
+        await message.answer("❌ Не удалось собрать ссылки для поиска.", reply_markup=main_menu_kb)
+        return
+
+    lines = [
+        "🌍 <b>Глобальный поиск</b>",
+        "",
+        f"Запрос: <code>{html.escape(query)}</code>",
+        "",
+        "🧠 <b>AI-сводка</b>",
+        html.escape(ai_summary or "Нет данных."),
+        "",
+        "🔗 <b>Ссылки для проверки</b>",
+        "",
+    ]
+
+    for index, item in enumerate(results, start=1):
+        lines.append(f"{index}. <a href=\"{html.escape(item.url)}\">{html.escape(item.title)}</a>")
+        lines.append(f"   {html.escape(item.description)}")
+        lines.append("")
+
     await message.answer(
-        "🌍 <b>Глобальный поиск</b>\n\n"
-        f"Запрос:\n<code>{html.escape(query)}</code>\n\n"
-        "⚠️ Пока это отдельный режим-заготовка. "
-        "Следующий этап — подключить внешний web-search/RAG по моделям, "
-        "не смешивая его с реальными остатками поставщиков.",
+        "\n".join(lines),
         reply_markup=main_menu_kb,
+        disable_web_page_preview=True,
     )
 
 

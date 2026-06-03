@@ -34,14 +34,83 @@ async def search_supplier_sites(message: Message) -> None:
         )
         return
 
+    await run_supplier_sites_search(message, query)
+
+
+async def run_supplier_sites_search(message: Message, query: str) -> None:
+    queries = [
+        line.strip(" •-—	")
+        for line in str(query or "").splitlines()
+        if line.strip(" •-—	")
+    ]
+
+    if not queries:
+        await message.answer("❌ Пустой запрос.", reply_markup=main_menu_kb)
+        return
+
+    service = WebSupplierSearchService()
+
+    if len(queries) > 1:
+        await message.answer(
+            f"🌐 Ищу на сайтах поставщиков списком: <b>{len(queries)}</b> позиций",
+            reply_markup=main_menu_kb,
+        )
+
+        response = ["🌐 <b>Остатки у поставщиков по списку</b>", ""]
+
+        for q_index, item_query in enumerate(queries[:20], start=1):
+            response.append(f"<b>{q_index}. {html.escape(item_query)}</b>")
+
+            try:
+                results = await service.search_all(
+                    query=item_query,
+                    limit_per_supplier=3,
+                    headless=True,
+                )
+            except Exception as exc:
+                response.append(f"   ❌ Ошибка: <code>{html.escape(type(exc).__name__)}: {html.escape(str(exc))}</code>")
+                response.append("")
+                continue
+
+            if not results:
+                response.append("   ❌ Не найдено")
+                response.append("")
+                continue
+
+            for index, item in enumerate(results[:5], start=1):
+                response.append(f"   {index}. <b>{html.escape(item.supplier_name)}</b>")
+                response.append(f"      {html.escape(item.title)}")
+
+                if item.price:
+                    response.append(f"      💰 Цена сайта: <b>{html.escape(str(item.price))}</b>")
+
+                    calculated_price = _calculate_supplier_price(
+                        supplier_name=item.supplier_name,
+                        title=item.title,
+                        raw_price=str(item.price),
+                    )
+                    if calculated_price:
+                        response.append(f"      🧮 Цена после скидки: <b>{html.escape(calculated_price)}</b>")
+
+                if item.stock:
+                    response.append(f"      📦 Остаток: {html.escape(str(item.stock))}")
+
+            response.append("")
+
+        if len(queries) > 20:
+            response.append(f"⚠️ Обработал первые 20 строк из {len(queries)}.")
+
+        await message.answer("\\n".join(response), reply_markup=main_menu_kb)
+        return
+
+    query = queries[0]
+
     await message.answer(
         f"🌐 Ищу на сайтах поставщиков:\n<code>{html.escape(query)}</code>",
         reply_markup=main_menu_kb,
     )
 
     try:
-        service = WebSupplierSearchService()
-
         results = await service.search_all(
             query=query,
             limit_per_supplier=5,
@@ -63,17 +132,11 @@ async def search_supplier_sites(message: Message) -> None:
         ]
 
         for index, item in enumerate(results, start=1):
-            response.append(
-                f"{index}. <b>{html.escape(item.supplier_name)}</b>"
-            )
-            response.append(
-                f"   {html.escape(item.title)}"
-            )
+            response.append(f"{index}. <b>{html.escape(item.supplier_name)}</b>")
+            response.append(f"   {html.escape(item.title)}")
 
             if item.price:
-                response.append(
-                    f"   💰 Цена сайта: <b>{html.escape(str(item.price))}</b>"
-                )
+                response.append(f"   💰 Цена сайта: <b>{html.escape(str(item.price))}</b>")
 
                 calculated_price = _calculate_supplier_price(
                     supplier_name=item.supplier_name,
@@ -82,21 +145,14 @@ async def search_supplier_sites(message: Message) -> None:
                 )
 
                 if calculated_price:
-                    response.append(
-                        f"   🧮 Цена после скидки: <b>{html.escape(calculated_price)}</b>"
-                    )
+                    response.append(f"   🧮 Цена после скидки: <b>{html.escape(calculated_price)}</b>")
 
             if item.stock:
-                response.append(
-                    f"   📦 Остаток: {html.escape(str(item.stock))}"
-                )
+                response.append(f"   📦 Остаток: {html.escape(str(item.stock))}")
 
             response.append("")
 
-        await message.answer(
-            "\n".join(response),
-            reply_markup=main_menu_kb,
-        )
+        await message.answer("\\n".join(response), reply_markup=main_menu_kb)
 
     except Exception as exc:
         await message.answer(

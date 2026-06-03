@@ -184,6 +184,47 @@ async def send_supplier_stock_results(message: Message, query: str) -> None:
 
 
 def build_supplier_stock_text(query: str) -> str:
+    queries = _split_bulk_queries(query)
+
+    if len(queries) > 1:
+        lines = [
+            "🏬 <b>Остатки у поставщиков</b>",
+            f"Запросов: <b>{len(queries)}</b>",
+            "",
+        ]
+
+        for block_index, single_query in enumerate(queries[:20], start=1):
+            result = _supplier_cache_service.compare(single_query, limit=5)
+
+            lines.append(f"<b>{block_index}. {html.escape(single_query)}</b>")
+
+            if result.empty:
+                lines.append("❌ Ничего не найдено.")
+                lines.append("")
+                continue
+
+            for index, row in enumerate(result.to_dict("records"), start=1):
+                supplier = html.escape(str(row.get("supplier_name") or "неизвестный поставщик"))
+                product = html.escape(str(row.get("product_name") or "без названия"))
+                price = _format_price(row.get("price"))
+                calculated_price = _format_price(row.get("calculated_price")) if "calculated_price" in row else None
+                stock = _format_stock(row.get("stock"))
+
+                best_badge = " 🟢" if bool(row.get("is_best_price")) else ""
+                line = f"{index}) <b>{product}</b>{best_badge}\n🏷️ {supplier}\n💰 {price}\n📦 {stock}"
+
+                if calculated_price:
+                    line += f"\n🧮 После формулы: {calculated_price}"
+
+                lines.append(line)
+
+            lines.append("")
+
+        if len(queries) > 20:
+            lines.append(f"⚠️ Обработал первые 20 строк из {len(queries)}.")
+
+        return "\n\n".join(lines)
+
     result = _supplier_cache_service.compare(query, limit=15)
 
     if result.empty:
@@ -331,3 +372,26 @@ def _format_warehouse_stock_text(value: object) -> str:
         lines.append(f"   • {warehouse}: {stock_text}")
 
     return "🏬 По складам:\n" + "\n".join(lines)
+
+
+
+def _split_bulk_queries(text: str) -> list[str]:
+    """Split multiline supplier stock request into independent product queries."""
+    raw_lines = [line.strip(" •*-—\\t") for line in str(text or "").splitlines()]
+    queries = []
+
+    for line in raw_lines:
+        if not line:
+            continue
+
+        low = line.lower().strip()
+        if low in {"/cancel", "отмена"}:
+            continue
+
+        # remove leading numbering: 1. / 1) / 1-
+        line = re.sub(r"^\\s*\\d+[\\).:-]\\s*", "", line).strip()
+
+        if line:
+            queries.append(line)
+
+    return queries if len(queries) > 1 else [str(text or "").strip()]

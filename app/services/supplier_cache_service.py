@@ -85,24 +85,33 @@ class SupplierCacheService:
             if result.empty:
                 return result
 
-        result["name_norm"] = result["product_name"].astype(str).map(_normalize_for_search)
+        result = _ensure_name_norm(result)
 
         is_boiler_query = _is_boiler_query(clean_query, tokens)
         requested_brand = _requested_brand(tokens)
         requested_series = _requested_series(tokens)
         requested_model_numbers = [token for token in tokens if token.isdigit()]
 
+        result = _apply_supplier_strict_intent_filter(result, clean_query, tokens)
+        if result.empty:
+            return result
+
         if is_boiler_query:
             result = result[~result["name_norm"].map(_is_boiler_accessory_name)].copy()
 
         if requested_brand:
+            result = _ensure_name_norm(result)
             result = result[result["name_norm"].map(lambda value: _brand_allowed(value, requested_brand))].copy()
+
+        result = _ensure_name_norm(result)
 
         if requested_series:
             result = result[result["name_norm"].str.contains(requested_series, regex=False, na=False)].copy()
 
         for model_number in requested_model_numbers:
-            result = result[result["name_norm"].str.contains(model_number, regex=False, na=False)].copy()
+            filtered = result[result["name_norm"].map(lambda name: _name_has_exact_model_number(name, model_number))].copy()
+            if not filtered.empty:
+                result = filtered
 
         if result.empty:
             return result
@@ -122,7 +131,7 @@ class SupplierCacheService:
             if supplier_filter:
                 result = result[result["supplier_key"].astype(str).str.lower() == supplier_filter].copy()
 
-            result["name_norm"] = result["product_name"].astype(str).map(_normalize_for_search)
+            result = _ensure_name_norm(result)
 
             if is_boiler_query:
                 result = result[~result["name_norm"].map(_is_boiler_accessory_name)].copy()
@@ -200,6 +209,118 @@ class SupplierCacheService:
             df["warehouse_stocks"] = "{}"
 
         return df
+
+
+
+def _normalize_supplier_query_for_intent(query: str) -> str:
+    text = str(query or "").lower().replace("ё", "е")
+
+    replacements = {
+        "бакси": "baxi",
+        "навьен": "navien",
+        "навиен": "navien",
+        "фондиталь": "fondital",
+        "фондитал": "fondital",
+        "федерика бугатти": "federica bugatti",
+        "федерика бугати": "federica bugatti",
+        "федерика": "federica bugatti",
+        "бугатти": "federica bugatti",
+        "бугати": "federica bugatti",
+    }
+
+    for src, dst in sorted(replacements.items(), key=lambda x: len(x[0]), reverse=True):
+        text = re.sub(rf"(?<!\w){re.escape(src)}(?!\w)", dst, text)
+
+    return text
+
+
+def _name_has_exact_model_number(name: str, number: str) -> bool:
+    value = str(name or "").lower().replace("ё", "е")
+
+    patterns = [
+        rf"(?<![\d.]){re.escape(number)}(?!\d)",       # 16 / 24, but not 160 or 1.24
+        rf"(?<![\d.]){re.escape(number)}\s*f(?!\w)",   # 24 F
+        rf"(?<![\d.]){re.escape(number)}f(?!\w)",      # 24F
+        rf"(?<![\d.]){re.escape(number)}\s*k(?!\w)",   # 24 K
+        rf"(?<![\d.]){re.escape(number)}k(?!\w)",      # 24K
+        rf"ксг[-\s]*{re.escape(number)}(?!\d)",
+        rf"ксгз[-\s]*{re.escape(number)}(?!\d)",
+        rf"кс[-\s]*г[-\s]*{re.escape(number)}(?!\d)",
+        rf"кс[-\s]*гз[-\s]*{re.escape(number)}(?!\d)",
+    ]
+
+    return any(re.search(pattern, value) for pattern in patterns)
+
+
+def _apply_supplier_strict_intent_filter(
+    result: pd.DataFrame,
+    clean_query: str,
+    tokens: list[str],
+) -> pd.DataFrame:
+    if result.empty or "name_norm" not in result.columns:
+        return result
+
+    q = _normalize_supplier_query_for_intent(clean_query)
+
+    filters: list[tuple[str, callable]] = []
+
+    if "артек" in q:
+        filters.append(("brand_artek", lambda name: "артек" in name))
+
+    if "baxi" in q:
+        filters.append(("brand_baxi", lambda name: "baxi" in name or "бакси" in name))
+        if "eco" in q and "4s" in q:
+            filters.append(("line_eco4s", lambda name: "eco" in name and ("4s" in name or "4 s" in name or "eco-4s" in name)))
+        elif "eco" in q and "nova" in q:
+            filters.append(("line_econova", lambda name: "eco" in name and "nova" in name))
+
+    if "navien" in q:
+        filters.append(("brand_navien", lambda name: "navien" in name or "навьен" in name or "навиен" in name))
+        if "deluxe" in q:
+            filters.append(("line_deluxe", lambda name: "deluxe" in name))
+        if re.search(r"\bc\b", q):
+            filters.append(("line_c", lambda name: bool(re.search(r"(?<!\w)c(?!\w)|(?<!\w)с(?!\w)", name))))
+
+    if "federica" in q or "bugatti" in q:
+        filters.append(("brand_federica_bugatti", lambda name: "federica" in name and ("bugatti" in name or "bugati" in name)))
+
+    if "fondital" in q:
+        filters.append(("brand_fondital", lambda name: "fondital" in name))
+
+    strict = result.copy()
+
+    for _, predicate in filters:
+        filtered = strict[strict["name_norm"].map(predicate)].copy()
+        if not filtered.empty:
+            strict = filtered
+
+    common_model_numbers = {
+        "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "18",
+        "20", "21", "22", "24", "28", "30", "32", "35", "40",
+    }
+    requested_model_numbers = [token for token in tokens if token in common_model_numbers]
+
+    for model_number in requested_model_numbers:
+        filtered = strict[strict["name_norm"].map(lambda name: _name_has_exact_model_number(name, model_number))].copy()
+        if not filtered.empty:
+            strict = filtered
+
+    return strict
+
+
+def _ensure_name_norm(df: pd.DataFrame) -> pd.DataFrame:
+    """Guarantee searchable normalized name column exists."""
+    if df.empty:
+        if "name_norm" not in df.columns:
+            df = df.copy()
+            df["name_norm"] = pd.Series(dtype="object")
+        return df
+
+    df = df.copy()
+    if "product_name" not in df.columns:
+        df["product_name"] = ""
+    df["name_norm"] = df["product_name"].astype(str).map(_normalize_for_search)
+    return df
 
 
 def _product_to_row(product: SupplierProduct) -> dict[str, object]:

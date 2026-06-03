@@ -121,51 +121,100 @@ class SupplierInboxWatcher:
 
 
 def _latest_supplier_files(files: list[Path]) -> list[Path]:
-    """Keep only latest supplier price files.
+    """Keep latest file per supplier group.
 
-    Rule:
-    1. Detect price date marker like 18_05 / 12_05 in filenames.
-    2. Keep only files with the newest marker.
-    3. Within newest marker, keep latest file per supplier group.
-    4. Move older files to archive.
+    Важно:
+    - нельзя выбирать только самый новый date-marker глобально;
+    - Юлас 18_05 и большой прайс 25_05 должны жить вместе;
+    - старые версии одного и того же поставщика можно архивировать.
     """
-    valid_files = [f for f in files if f.is_file()]
-    if not valid_files:
+    if not files:
         return []
-
-    newest_marker = _newest_price_marker(valid_files)
-
-    active_files: list[Path] = []
-    stale_files: list[Path] = []
-
-    for file_path in valid_files:
-        marker = _price_marker(file_path)
-
-        if newest_marker and marker != newest_marker:
-            stale_files.append(file_path)
-        else:
-            active_files.append(file_path)
-
-    for old_file in stale_files:
-        _archive_file(old_file)
 
     grouped: dict[str, list[Path]] = defaultdict(list)
 
-    for file_path in active_files:
-        supplier_key = _supplier_group_key(file_path)
-        grouped[supplier_key].append(file_path)
+    for file_path in files:
+        grouped[_supplier_group_key(file_path)].append(file_path)
 
-    latest: list[Path] = []
+    keep: list[Path] = []
 
-    for _, items in grouped.items():
-        items.sort(key=lambda x: x.stat().st_mtime)
-        latest_file = items[-1]
-        latest.append(latest_file)
+    for _, group_files in grouped.items():
+        latest = max(
+            group_files,
+            key=lambda path: (
+                _extract_price_date_marker(path.name) or "",
+                path.stat().st_mtime,
+            ),
+        )
 
-        for old_file in items[:-1]:
-            _archive_file(old_file)
+        keep.append(latest)
 
-    return latest
+        for old_file in group_files:
+            if old_file == latest:
+                continue
+
+            try:
+                ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+                target = ARCHIVE_DIR / old_file.name
+                if not target.exists():
+                    shutil.move(str(old_file), str(target))
+                    logger.info("Archived older supplier price: {} -> {}", old_file, target)
+            except Exception as exc:
+                logger.warning("Failed to archive old supplier price {}: {}", old_file, exc)
+
+    return sorted(keep)
+
+
+def _supplier_group_key(file_path: Path) -> str:
+    name = file_path.name.lower().replace("ё", "е")
+
+    # Юлас — отдельный поставщик/группа, не должен конкурировать с большим прайсом.
+    if "юлас" in name or "yulas" in name:
+        return "yulas"
+
+    # Большой общий прайс брендов.
+    brand_tokens = [
+        "бакси",
+        "baxi",
+        "иммергаз",
+        "immergas",
+        "аристон",
+        "ariston",
+        "дражице",
+        "drazice",
+        "навьен",
+        "navien",
+        "термекс",
+        "thermex",
+        "бош",
+        "bosch",
+        "эван",
+        "evan",
+        "дакор",
+        "dakor",
+    ]
+
+    if any(token in name for token in brand_tokens):
+        return "main_brands"
+
+    # fallback: убираем дату/технические хвосты, чтобы версии одного файла группировались.
+    cleaned = re.sub(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_", "", name)
+    cleaned = re.sub(r"\d{1,2}_\d{1,2}", "", cleaned)
+    cleaned = re.sub(r"\.(xlsx|xls|csv)$", "", cleaned)
+    cleaned = re.sub(r"[^a-zа-я0-9]+", "_", cleaned).strip("_")
+
+    return cleaned or "unknown"
+
+
+def _extract_price_date_marker(name: str) -> str | None:
+    match = re.search(r"(\d{1,2})_(\d{1,2})", name)
+    if not match:
+        return None
+
+    day = int(match.group(1))
+    month = int(match.group(2))
+
+    return f"{month:02d}-{day:02d}"
 
 
 def _archive_file(file_path: Path) -> None:

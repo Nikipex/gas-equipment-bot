@@ -32,9 +32,25 @@ async def process_price_round(callback: CallbackQuery) -> None:
     step = int(callback.data.split(":")[1])
     await callback.message.answer(
         await build_price_list_text(text, round_step=step),
-        reply_markup=_round_keyboard("price_round"),
+        reply_markup=_price_keyboard(),
     )
     await callback.answer(f"Округлил до {step}")
+
+
+@router.callback_query(F.data == "price_show_purchase")
+async def process_show_purchase(callback: CallbackQuery) -> None:
+    user_id = callback.from_user.id
+    text = _last_price_requests.get(user_id)
+
+    if not text:
+        await callback.answer("Нет последнего прайса", show_alert=True)
+        return
+
+    await callback.message.answer(
+        await build_price_list_text(text, force_show_purchase=True),
+        reply_markup=_price_keyboard(),
+    )
+    await callback.answer("Показал закупку")
 
 
 async def send_price_list(message: Message, text: str) -> None:
@@ -43,12 +59,19 @@ async def send_price_list(message: Message, text: str) -> None:
     result = await build_price_list_text(text)
     await message.answer(
         result,
-        reply_markup=_round_keyboard("price_round"),
+        reply_markup=_price_keyboard(),
     )
 
 
-async def build_price_list_text(text: str, round_step: int | None = None) -> str:
+async def build_price_list_text(
+    text: str,
+    round_step: int | None = None,
+    force_show_purchase: bool = False,
+) -> str:
     request, lines = _price_list_service.build(text, limit=30, round_step=round_step)
+
+    if force_show_purchase:
+        request.show_purchase = True
 
     if not request.query:
         return "❌ Укажи, по чему сделать прайс. Например: <b>прайс фондитал +20%</b>"
@@ -90,13 +113,16 @@ async def build_price_list_text(text: str, round_step: int | None = None) -> str
     return "\n\n".join(response)
 
 
-def _round_keyboard(prefix: str) -> InlineKeyboardMarkup:
+def _price_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔢 До 10", callback_data=f"{prefix}:10"),
-                InlineKeyboardButton(text="🔢 До 100", callback_data=f"{prefix}:100"),
-            ]
+                InlineKeyboardButton(text="🔢 До 10", callback_data="price_round:10"),
+                InlineKeyboardButton(text="🔢 До 100", callback_data="price_round:100"),
+            ],
+            [
+                InlineKeyboardButton(text="🔒 Показать закупку", callback_data="price_show_purchase"),
+            ],
         ]
     )
 

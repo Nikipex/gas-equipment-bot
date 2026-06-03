@@ -11,6 +11,8 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from loguru import logger
 
+from app.services.healthcheck_service import HealthcheckService
+
 from app.bot.routers import main_router
 from app.core.config import settings
 from app.core.env import load_environment
@@ -44,6 +46,9 @@ async def main() -> None:
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception as e:
         logger.warning(f"delete_webhook failed, continue polling anyway: {type(e).__name__}: {e}")
+
+    asyncio.create_task(HealthcheckService(bot).run_forever())
+
 
     logger.info("Polling started")
     await dp.start_polling(bot)
