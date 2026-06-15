@@ -1,82 +1,244 @@
-# Gas Equipment Bot 🔧
+Gas Equipment Bot
 
-Telegram-бот для поиска и подбора газового оборудования.
+AI-powered sales assistant and product intelligence platform for gas equipment distributors.
 
-## Стек
+⸻
 
-| Компонент | Технология |
-|-----------|-----------|
-| Runtime | Python 3.12+ |
-| Bot framework | aiogram 3.x |
-| ORM | SQLAlchemy 2.x (async) |
-| Миграции | Alembic |
-| БД | PostgreSQL 16 |
-| Конфиг | pydantic-settings |
-| Логирование | loguru |
-| Контейнеризация | Docker / docker-compose |
+Overview
 
-## Быстрый старт
+Gas Equipment Bot is an internal sales automation platform designed to help managers quickly find products, check stock availability, compare alternatives, answer technical questions and generate commercial proposals.
 
-### 1. Клонировать и настроить окружение
+The bot combines:
 
-```bash
-cp .env.example .env
-# Отредактируйте .env — укажите BOT_TOKEN от @BotFather
-```
+* Real-time inventory data
+* Supplier catalogs
+* Internal knowledge base
+* AI-powered product assistance
 
-### 2. Запуск через Docker
+⸻
 
-```bash
-docker compose up -d --build
-```
+Business Problem
 
-Бот и PostgreSQL стартуют автоматически.
+Sales managers often need to:
 
-### 3. Запуск локально (для разработки)
+* Check stock availability
+* Compare equipment
+* Find alternatives
+* Verify supplier pricing
+* Explain technical differences
+* Handle warranty and defect questions
 
-```bash
-# Создать venv
-python -m venv .venv && source .venv/bin/activate
+Traditionally this required switching between:
 
-# Установить зависимости
-pip install -e ".[dev]"
+* 1C
+* Excel files
+* Supplier catalogs
+* Product manuals
+* Internal documentation
 
-# Поднять только БД
-docker compose up -d db
+Gas Equipment Bot consolidates these workflows into a single interface.
 
-# Применить миграции
-alembic upgrade head
+⸻
 
-# Запустить бота
-python -m app.main
-```
+Main Capabilities
 
-## Структура проекта
+Product Search
 
-```
-app/
-├── bot/            # Telegram-слой: хендлеры, клавиатуры, роутеры
-├── services/       # Бизнес-логика
-├── repositories/   # Доступ к данным (CRUD)
-├── db/             # SQLAlchemy модели, сессия, миграции
-├── schemas/        # Pydantic-схемы (DTO)
-├── core/           # Конфигурация и логирование
-├── utils/          # Утилиты: нормализация, матчинг
-└── main.py         # Точка входа
-```
+Search across:
 
-## Команды
+* 1C catalog
+* Inventory balances
+* Reserved stock
+* Purchase prices
+* Supplier catalogs
 
-| Команда | Описание |
-|---------|----------|
-| `docker compose up -d --build` | Запустить всё |
-| `docker compose logs -f bot` | Логи бота |
-| `docker compose down -v` | Остановить и удалить данные |
-| `alembic revision --autogenerate -m "..."` | Создать миграцию |
-| `alembic upgrade head` | Применить миграции |
-| `pytest` | Запуск тестов |
-| `ruff check app/` | Линтинг |
+Supported categories:
 
-## Лицензия
+* Boilers
+* Water heaters
+* Radiators
+* Pumps
+* Chimney systems
+* Stabilizers
 
-MIT
+⸻
+
+AI Sales Assistant
+
+Supports:
+
+* Product explanations
+* Equipment comparison
+* Alternative recommendations
+* Technical consultations
+* Sales positioning
+* Customer-facing explanations
+
+Example questions:
+
+* Difference between Lemax Classic and Premium
+* Alternative to Baxi Eco 4S 24F
+* Which boiler fits a specific application
+* Chimney compatibility questions
+
+⸻
+
+Knowledge Base System
+
+Structured internal knowledge base covering:
+
+* Boilers
+* Water heaters
+* Chimney systems
+* Pumps
+* Radiators
+* Warranty procedures
+* Supplier policies
+* Defect handling workflows
+
+⸻
+
+Supplier Intelligence
+
+Capabilities:
+
+* Supplier price import
+* Price comparison
+* Best offer detection
+* Supplier catalog search
+* Stock-aware recommendations
+
+⸻
+
+Snapshot Fallback System
+
+To ensure availability during PostgreSQL outages:
+
+* Automatic catalog snapshots
+* Scheduled snapshot refresh
+* Last-known-good inventory data
+* Graceful fallback mode
+
+Managers can continue searching products even if the primary database is temporarily unavailable.
+
+⸻
+
+Architecture
+
+1C PostgreSQL
+
+Supplier Catalogs
+
+Knowledge Base
+
+↓
+
+Business Services
+
+↓
+
+AI Layer
+
+↓
+
+Telegram Bot
+
+↓
+
+Sales Managers
+
+⸻
+
+Technology Stack
+
+Core
+
+* Python 3.12
+* Aiogram 3
+* PostgreSQL
+* SQLAlchemy
+
+Data
+
+* Pandas
+* Redis
+
+AI
+
+* Yandex AI Studio
+* Qwen Models
+* Retrieval Layer
+* Internal Knowledge Base
+
+Infrastructure
+
+* Docker
+* Systemd
+* Linux VPS
+
+⸻
+
+Reliability
+
+Implemented:
+
+* PostgreSQL integration
+* Redis caching
+* Snapshot fallback catalog
+* Automatic snapshot refresh
+* Error recovery mechanisms
+
+⸻
+
+Current Status
+
+Production / Internal Commercial Use
+
+Implemented:
+
+* Product search
+* Inventory lookup
+* Supplier catalog search
+* AI sales assistant
+* Knowledge base retrieval
+* Alternative recommendations
+* Snapshot fallback system
+
+Used by real sales managers inside a gas equipment distribution company.
+
+⸻
+
+Long-Term Roadmap
+
+Knowledge Base Expansion
+
+Expand technical expertise across all product groups.
+
+Passport Intelligence
+
+Automatic extraction of technical specifications from product documentation.
+
+Supplier Intelligence
+
+Unified supplier comparison and purchasing intelligence.
+
+Retrieval Layer V2
+
+Advanced contextual search and ranking.
+
+AI Sales Engineer
+
+Full AI assistant capable of:
+
+* Product recommendations
+* Technical consultations
+* Supplier analysis
+* Commercial proposal support
+
+⸻
+
+Project Type
+
+Commercial Internal Product
+
+Built for real-world sales operations and integrated with production business data.
