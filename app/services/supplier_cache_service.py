@@ -549,3 +549,6 @@ def _product_group_key(value: object) -> str:
         strong.append(token)
 
     return " ".join(strong[:5]) or _normalize_text(value)
+
+
+supplier_cache_service = SupplierCacheService()

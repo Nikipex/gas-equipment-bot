@@ -12,3 +12,8 @@ class MiniPrice(StatesGroup):
 class SearchModeStates(StatesGroup):
     waiting_supplier_site_query = State()
     waiting_global_search_query = State()
+
+
+class KnowledgeUploadState(StatesGroup):
+    waiting_for_category = State()
+    waiting_for_file = State()

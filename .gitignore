@@ -67,3 +67,65 @@ data/supplier_prices/.processed_markers/*
 !data/supplier_prices/inbox/.gitkeep
 !data/supplier_prices/processed/.gitkeep
 !data/supplier_prices/.processed_markers/.gitkeep
+
+# =========================
+# Runtime / private env
+# =========================
+.env
+.env.*
+bot.out
+logs/
+*.log
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# =========================
+# Browser / Playwright runtime
+# =========================
+data/browser_sessions/
+data/web_snapshots/
+
+# =========================
+# Runtime generated data
+# =========================
+data/fallback/
+data/knowledge_base_index/
+data/supplier_prices/
+data/demo/
+data/processed/
+data/web_snapshots/
+
+# =========================
+# Uploaded passports / generated summaries
+# =========================
+data/knowledge_base/passport_intelligence/**/*.pdf
+data/knowledge_base/passport_intelligence/**/*.summary.md
+
+# =========================
+# Accidental shell artifacts
+# =========================
+=
+0
+0:
+abc
+gross_profit_year
+inventory
+planning
+radiator_abc
+radiator_apr
+radiator_feb
+radiator_jan
+radiator_mar
+sales
+ter | reserved_register | derived_free 
+
+# =========================
+# Local backups
+# =========================
+*.bak
+*.bak_*

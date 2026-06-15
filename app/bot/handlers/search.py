@@ -2,7 +2,7 @@ from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from loguru import logger
 
 from app.bot.keyboards.main_menu import MenuButtons, get_main_menu_keyboard
@@ -10,12 +10,23 @@ from app.bot.states.search_states import ProductSearch
 from app.repositories.product_repository import ProductRepository
 from app.services.product_service import ProductService
 from app.services.postgres_catalog_service import PostgresCatalogService
+from app.services.catalog_snapshot_service import catalog_snapshot_service
 from app.services.cache_service import cache_service
 
 _product_repo = ProductRepository()
 _product_service = ProductService(_product_repo)
 
 _postgres_catalog_service: PostgresCatalogService | None = None
+_last_search_queries: dict[int, str] = {}
+
+def get_last_search_query(user_id: int) -> str | None:
+    return _last_search_queries.get(user_id)
+
+def _alternatives_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔁 Аналогичное оборудование", callback_data="alternatives:last_search")
+    ]])
+
 
 def _get_postgres_catalog_service() -> PostgresCatalogService:
     """Lazy PostgreSQL catalog service init.
@@ -126,16 +137,53 @@ async def process_search_query(message: Message, state: FSMContext):
             results_count = int(cached.get("results_count", 0))
             result_source = "redis"
         else:
-            formatted = (
-                "❌ Живая база 1С/PostgreSQL временно недоступна.\n"
-                "Кэша по этому запросу пока нет. Попробуйте позже."
-            )
-            results_count = 0
-            result_source = "error"
+            snapshot_results = catalog_snapshot_service.search(query, limit=10)
+
+            if snapshot_results:
+                snapshot_lines = [
+                    "⚠️ <b>Живая база 1С/PostgreSQL временно недоступна.</b>",
+                    "Показываю последний сохранённый слепок каталога.",
+                    f"Слепок: {catalog_snapshot_service.meta_text()}",
+                    "",
+                    "Перед КП обязательно подтвердите актуальность остатков в 1С.",
+                    "",
+                ]
+
+                for idx, item in enumerate(snapshot_results, start=1):
+                    price = (
+                        "нет данных"
+                        if item.purchase_price is None
+                        else f"{item.purchase_price:.2f}"
+                    )
+
+                    snapshot_lines.append(
+                        f"<b>{idx}. {item.product_name}</b>\n"
+                        f"Код: {item.product_code}\n"
+                        f"Всего: {item.stock_total_qty:g}\n"
+                        f"В резерве: {item.reserved_qty:g}\n"
+                        f"Свободно: {item.stock_qty:g}\n"
+                        f"Закупка: {price}\n"
+                    )
+
+                formatted = "\n".join(snapshot_lines)
+                results_count = len(snapshot_results)
+                result_source = "snapshot"
+            else:
+                formatted = (
+                    "❌ Живая база 1С/PostgreSQL временно недоступна.\n"
+                    "Redis-кэша по этому запросу нет, и в последнем snapshot ничего не найдено.\n"
+                    "Попробуйте позже."
+                )
+                results_count = 0
+                result_source = "error"
+
+    user_id = message.from_user.id if message.from_user else None
+    if user_id:
+        _last_search_queries[int(user_id)] = query
 
     await message.answer(
         formatted,
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=_alternatives_keyboard() if results_count > 0 else get_main_menu_keyboard(),
     )
 
     await state.clear()

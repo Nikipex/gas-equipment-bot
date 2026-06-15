@@ -9,6 +9,7 @@ class MenuButtons:
     PRICE = "💰 Мини-прайс"
     QUOTE = "🧾 Просчет"
     THINKING = "🧠 Размышления"
+    KB_UPLOAD = "📚 Загрузить паспорт"
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
@@ -28,6 +29,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
             ],
             [
                 KeyboardButton(text=MenuButtons.THINKING),
+                KeyboardButton(text=MenuButtons.KB_UPLOAD),
             ],
         ],
         resize_keyboard=True,
