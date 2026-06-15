@@ -1,0 +1,17 @@
+{
+  "brand": "Лемакс",
+  "model": "Classic 16",
+  "category": "boiler",
+  "power_kw": 16,
+  "circuits": null,
+  "chamber": "open",
+  "installation": "floor",
+  "dhw": false,
+  "coaxial": false,
+  "efficiency_percent": null,
+  "weight_kg": null,
+  "flue_type": "traditional",
+  "flue_size": null,
+  "sales_positioning": "бюджетный напольный энергонезависимый котёл для простой замены старого отопительного котла",
+  "source_file": "lemax_classic_16"
+}

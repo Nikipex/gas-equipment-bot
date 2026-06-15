@@ -1,0 +1,17 @@
+{
+  "brand": "Лемакс",
+  "model": "Premium 16",
+  "category": "boiler",
+  "power_kw": 16,
+  "circuits": null,
+  "chamber": "open",
+  "installation": "floor",
+  "dhw": false,
+  "coaxial": false,
+  "efficiency_percent": null,
+  "weight_kg": null,
+  "flue_type": "traditional",
+  "flue_size": null,
+  "sales_positioning": "напольный энергонезависимый котёл серии выше Classic, для клиента, который готов доплатить за старшую линейку",
+  "source_file": "lemax_premium_16"
+}

@@ -1,0 +1,17 @@
+{
+  "brand": "BAXI",
+  "model": "ECO 4S 24F",
+  "category": "boiler",
+  "power_kw": 24,
+  "circuits": 2,
+  "chamber": "closed",
+  "installation": "wall",
+  "dhw": true,
+  "coaxial": true,
+  "efficiency_percent": null,
+  "weight_kg": null,
+  "flue_type": "coaxial",
+  "flue_size": null,
+  "sales_positioning": "популярный настенный двухконтурный турбо котёл около 24 кВт",
+  "source_file": "baxi_eco_4s_24f"
+}

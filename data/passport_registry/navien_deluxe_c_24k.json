@@ -1,0 +1,17 @@
+{
+  "brand": "Navien",
+  "model": "Deluxe C 24K",
+  "category": "boiler",
+  "power_kw": 24,
+  "circuits": 2,
+  "chamber": "closed",
+  "installation": "wall",
+  "dhw": true,
+  "coaxial": true,
+  "efficiency_percent": null,
+  "weight_kg": null,
+  "flue_type": "coaxial",
+  "flue_size": null,
+  "sales_positioning": "массовый настенный двухконтурный турбо котёл около 24 кВт, часто рассматривается как альтернатива BAXI",
+  "source_file": "navien_deluxe_c_24k"
+}
